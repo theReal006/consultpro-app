@@ -17,10 +17,142 @@ function daysOverdue(dueDate) {
   return diff > 0 ? Math.floor(diff) : null
 }
 
-function InvoiceRow({ invoice, clients, profile, onStatusChange }) {
+// ─── Send invoice via SendGrid ────────────────────────────────────────────────
+async function sendInvoiceEmail({ invoice, client, profile, settings }) {
+  const token = (await supabase.auth.getSession()).data?.session?.access_token
+  const clientEmail = client?.email
+  if (!clientEmail) return { error: 'Client has no email address' }
+
+  const invoiceDate = invoice.invoice_date
+    ? new Date(invoice.invoice_date).toLocaleDateString()
+    : new Date().toLocaleDateString()
+  const dueDate = invoice.due_date
+    ? new Date(invoice.due_date).toLocaleDateString()
+    : 'upon receipt'
+
+  const body = `
+    <div style="font-family: 'DM Sans', Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #0A1628;">
+      <div style="background: #0042AA; padding: 24px 32px; border-radius: 12px 12px 0 0;">
+        <h1 style="color: white; margin: 0; font-size: 22px;">${profile?.business_name || 'ConsultPro'}</h1>
+      </div>
+      <div style="padding: 32px; background: #F8FAFC; border-radius: 0 0 12px 12px;">
+        <p style="margin: 0 0 16px;">Dear ${client?.name || 'Client'},</p>
+        <p style="margin: 0 0 16px;">Please find your invoice details below.</p>
+        <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; margin-bottom: 24px;">
+          <tr style="background: #EFF6FF;">
+            <td style="padding: 12px 16px; font-weight: bold;">Invoice #</td>
+            <td style="padding: 12px 16px;">${invoice.invoice_number}</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 16px; font-weight: bold;">Amount Due</td>
+            <td style="padding: 12px 16px; color: #0042AA; font-weight: bold; font-size: 18px;">$${Number(invoice.amount).toLocaleString()}</td>
+          </tr>
+          <tr style="background: #EFF6FF;">
+            <td style="padding: 12px 16px; font-weight: bold;">Invoice Date</td>
+            <td style="padding: 12px 16px;">${invoiceDate}</td>
+          </tr>
+          <tr>
+            <td style="padding: 12px 16px; font-weight: bold;">Due Date</td>
+            <td style="padding: 12px 16px;">${dueDate}</td>
+          </tr>
+          ${invoice.notes ? `<tr style="background: #EFF6FF;"><td style="padding: 12px 16px; font-weight: bold;">Notes</td><td style="padding: 12px 16px;">${invoice.notes}</td></tr>` : ''}
+        </table>
+        <p style="margin: 0 0 8px; color: #6B7280; font-size: 14px;">Thank you for your business.</p>
+        ${profile?.business_name ? `<p style="margin: 0; font-weight: bold;">${profile.business_name}</p>` : ''}
+        ${profile?.phone ? `<p style="margin: 0; color: #6B7280; font-size: 14px;">${profile.phone}</p>` : ''}
+        ${profile?.email ? `<p style="margin: 0; color: #6B7280; font-size: 14px;">${profile.email}</p>` : ''}
+      </div>
+    </div>
+  `
+
+  const res = await supabase.functions.invoke('send-invoice', {
+    body: {
+      to: clientEmail,
+      to_name: client?.name,
+      subject: `Invoice ${invoice.invoice_number} from ${profile?.business_name || 'ConsultPro'}`,
+      body,
+      from_email: settings?.from_email || undefined,
+      from_name: settings?.from_name || profile?.business_name || undefined,
+      invoice_number: invoice.invoice_number,
+    },
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+
+  return res.data || res.error
+}
+
+// ─── Reminder settings panel ──────────────────────────────────────────────────
+function ReminderSettings({ settings, onChange, onSave, saving }) {
+  const toggles = [
+    { key: 'send_on_create',      label: 'Email invoice when created/sent',     desc: 'Sends immediately when you click Send' },
+    { key: 'reminder_30d',        label: '30-day overdue reminder',              desc: 'Auto-email client at 30 days past due' },
+    { key: 'reminder_60d',        label: '60-day overdue reminder',              desc: 'Auto-email client at 60 days past due' },
+    { key: 'reminder_90d',        label: '90-day overdue alert',                 desc: 'Notifies you at 90 days past due' },
+    { key: 'retainer_auto_invoice', label: 'Auto-create retainer invoices (1st of month)', desc: 'Generates invoice for retainer clients monthly' },
+  ]
+
+  return (
+    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-sm" style={{ color: '#0A1628' }}>Email & Reminder Settings</h3>
+        <button onClick={onSave} disabled={saving}
+          className="text-xs px-3 py-1.5 rounded-lg font-semibold text-white disabled:opacity-50"
+          style={{ background: '#0042AA' }}>
+          {saving ? 'Saving…' : 'Save Settings'}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+        <div>
+          <label className="text-xs font-semibold text-gray-500 block mb-1">From Email (SendGrid verified sender)</label>
+          <input
+            type="email"
+            value={settings.from_email || ''}
+            onChange={e => onChange({ ...settings, from_email: e.target.value })}
+            placeholder="billing@yourcompany.com"
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-gray-500 block mb-1">From Name</label>
+          <input
+            type="text"
+            value={settings.from_name || ''}
+            onChange={e => onChange({ ...settings, from_name: e.target.value })}
+            placeholder="Your Business Name"
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {toggles.map(({ key, label, desc }) => (
+          <div key={key} className="flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-gray-50">
+            <div>
+              <p className="text-sm font-semibold" style={{ color: '#0A1628' }}>{label}</p>
+              <p className="text-xs text-gray-400">{desc}</p>
+            </div>
+            <button
+              onClick={() => onChange({ ...settings, [key]: !settings[key] })}
+              className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 ml-4"
+              style={{ background: settings[key] ? '#0042AA' : '#D1D5DB' }}>
+              <span className="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"
+                style={{ transform: settings[key] ? 'translateX(20px)' : 'translateX(2px)' }} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Invoice row ──────────────────────────────────────────────────────────────
+function InvoiceRow({ invoice, clients, profile, settings, onStatusChange }) {
   const client = clients.find(c => c.id === invoice.client_id)
   const sc = STATUS_COLORS[invoice.status] || STATUS_COLORS.draft
   const overdueDays = daysOverdue(invoice.due_date)
+  const [sending, setSending] = useState(false)
+  const [sendResult, setSendResult] = useState(null)
 
   const downloadPDF = async () => {
     const doc = await generateInvoicePDF({ invoice, client, profile })
@@ -32,9 +164,25 @@ function InvoiceRow({ invoice, clients, profile, onStatusChange }) {
     onStatusChange()
   }
 
-  const sendInvoice = async () => {
+  const handleSend = async () => {
+    setSending(true)
+    setSendResult(null)
+    // Mark as sent in DB
     await supabase.from('invoices').update({ status: 'sent' }).eq('id', invoice.id)
+
+    // Send via SendGrid if enabled
+    if (settings?.send_on_create && client?.email) {
+      const result = await sendInvoiceEmail({ invoice, client, profile, settings })
+      setSendResult(result?.success ? '✅ Sent' : result?.error ? `❌ ${result.error}` : '✅ Sent')
+    } else if (!client?.email) {
+      setSendResult('⚠️ No client email')
+    } else {
+      setSendResult('✅ Marked sent')
+    }
+
     onStatusChange()
+    setSending(false)
+    setTimeout(() => setSendResult(null), 4000)
   }
 
   return (
@@ -64,17 +212,20 @@ function InvoiceRow({ invoice, clients, profile, onStatusChange }) {
       </td>
       <td className="py-3 px-4 text-xs text-gray-400">{invoice.billing_type}</td>
       <td className="py-3 px-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {sendResult && (
+            <span className="text-xs font-semibold">{sendResult}</span>
+          )}
           <button onClick={downloadPDF}
             className="text-xs px-2 py-1 rounded-lg font-semibold hover:opacity-80 transition-opacity"
             style={{ background: '#EFF6FF', color: '#3B82F6' }}>
             PDF
           </button>
           {invoice.status === 'draft' && (
-            <button onClick={sendInvoice}
-              className="text-xs px-2 py-1 rounded-lg font-semibold hover:opacity-80"
+            <button onClick={handleSend} disabled={sending}
+              className="text-xs px-2 py-1 rounded-lg font-semibold hover:opacity-80 disabled:opacity-50"
               style={{ background: '#EEF2FF', color: '#6366F1' }}>
-              Send
+              {sending ? '…' : 'Send'}
             </button>
           )}
           {['sent', 'overdue'].includes(invoice.status) && (
@@ -84,12 +235,20 @@ function InvoiceRow({ invoice, clients, profile, onStatusChange }) {
               Paid
             </button>
           )}
+          {['sent', 'overdue'].includes(invoice.status) && client?.email && (
+            <button onClick={handleSend} disabled={sending}
+              className="text-xs px-2 py-1 rounded-lg font-semibold hover:opacity-80 disabled:opacity-50"
+              style={{ background: '#FEF3C7', color: '#D97706' }}>
+              {sending ? '…' : 'Resend'}
+            </button>
+          )}
         </div>
       </td>
     </tr>
   )
 }
 
+// ─── Add invoice modal ────────────────────────────────────────────────────────
 function AddInvoiceModal({ onClose, onSave, clients }) {
   const [form, setForm] = useState({
     client_id: '', invoice_number: `INV-${String(Date.now()).slice(-5)}`,
@@ -100,12 +259,19 @@ function AddInvoiceModal({ onClose, onSave, clients }) {
   const [rate, setRate] = useState('')
   const { user } = useAuth()
 
-  // Auto-calc amount for hourly
   useEffect(() => {
     if (form.billing_type === 'hourly' && hours && rate) {
       setForm(f => ({ ...f, amount: (parseFloat(hours) * parseFloat(rate)).toFixed(2) }))
     }
   }, [hours, rate, form.billing_type])
+
+  // Auto-pull client's hourly rate
+  useEffect(() => {
+    if (form.client_id && form.billing_type === 'hourly') {
+      const client = clients.find(c => c.id === form.client_id)
+      if (client?.hourly_rate) setRate(String(client.hourly_rate))
+    }
+  }, [form.client_id, form.billing_type])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -134,7 +300,7 @@ function AddInvoiceModal({ onClose, onSave, clients }) {
             <option value="adhoc">Ad-hoc</option>
           </select>
 
-          {form.billing_type === 'hourly' ? (
+          {form.billing_type === 'hourly' && (
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-semibold text-gray-500 block mb-1">Hours</label>
@@ -147,7 +313,7 @@ function AddInvoiceModal({ onClose, onSave, clients }) {
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
               </div>
             </div>
-          ) : null}
+          )}
 
           <div>
             <label className="text-xs font-semibold text-gray-500 block mb-1">Amount ($)</label>
@@ -169,7 +335,9 @@ function AddInvoiceModal({ onClose, onSave, clients }) {
           </div>
           <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm">
-            <option value="draft">Draft</option><option value="sent">Sent</option><option value="paid">Paid</option>
+            <option value="draft">Draft</option>
+            <option value="sent">Sent</option>
+            <option value="paid">Paid</option>
           </select>
           <textarea placeholder="Description / notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm h-20 resize-none" />
@@ -185,27 +353,45 @@ function AddInvoiceModal({ onClose, onSave, clients }) {
   )
 }
 
+// ─── Main Billing page ────────────────────────────────────────────────────────
 export default function Billing() {
   const [invoices, setInvoices] = useState([])
   const [clients, setClients] = useState([])
   const [profile, setProfile] = useState(null)
+  const [settings, setSettings] = useState({
+    from_email: '', from_name: '',
+    send_on_create: true, reminder_30d: true,
+    reminder_60d: true, reminder_90d: true,
+    retainer_auto_invoice: false,
+  })
   const [showModal, setShowModal] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [savingSettings, setSavingSettings] = useState(false)
   const { user } = useAuth()
 
   const load = async () => {
-    const [invRes, cliRes, profRes] = await Promise.all([
+    const [invRes, cliRes, profRes, setRes] = await Promise.all([
       supabase.from('invoices').select('*').order('created_at', { ascending: false }),
-      supabase.from('clients').select('id, name, email, phone, address, contact_name'),
+      supabase.from('clients').select('id, name, email, phone, address, contact_name, hourly_rate'),
       supabase.from('profiles').select('*').eq('id', user.id).single(),
+      supabase.from('billing_settings').select('*').eq('user_id', user.id).single(),
     ])
     setInvoices(invRes.data || [])
     setClients(cliRes.data || [])
     setProfile(profRes.data)
+    if (setRes.data) setSettings(setRes.data)
     setLoading(false)
   }
 
   useEffect(() => { if (user) load() }, [user])
+
+  const saveSettings = async () => {
+    setSavingSettings(true)
+    const payload = { ...settings, user_id: user.id, updated_at: new Date().toISOString() }
+    await supabase.from('billing_settings').upsert(payload, { onConflict: 'user_id' })
+    setSavingSettings(false)
+  }
 
   const openAR = invoices.filter(i => ['sent', 'overdue'].includes(i.status)).reduce((s, i) => s + Number(i.amount), 0)
   const paid = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + Number(i.amount), 0)
@@ -218,10 +404,29 @@ export default function Billing() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold" style={{ color: '#0A1628' }}>Billing</h1>
-        <button onClick={() => setShowModal(true)}
-          className="px-5 py-2.5 rounded-xl text-white font-semibold text-sm"
-          style={{ background: '#0042AA' }}>+ New Invoice</button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowSettings(s => !s)}
+            className="px-4 py-2.5 rounded-xl font-semibold text-sm border border-gray-200 hover:bg-gray-50"
+            style={{ color: '#6B7280' }}>
+            ⚙ Settings
+          </button>
+          <button onClick={() => setShowModal(true)}
+            className="px-5 py-2.5 rounded-xl text-white font-semibold text-sm"
+            style={{ background: '#0042AA' }}>
+            + New Invoice
+          </button>
+        </div>
       </div>
+
+      {/* Reminder settings panel */}
+      {showSettings && (
+        <ReminderSettings
+          settings={settings}
+          onChange={setSettings}
+          onSave={saveSettings}
+          saving={savingSettings}
+        />
+      )}
 
       {/* KPI tiles */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
@@ -243,7 +448,7 @@ export default function Billing() {
         {loading ? (
           <div className="text-center py-16 text-gray-400">Loading invoices...</div>
         ) : invoices.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">No invoices yet.</div>
+          <div className="text-center py-16 text-gray-400">No invoices yet. Create your first one.</div>
         ) : (
           <table className="w-full">
             <thead>
@@ -255,7 +460,14 @@ export default function Billing() {
             </thead>
             <tbody>
               {invoices.map(inv => (
-                <InvoiceRow key={inv.id} invoice={inv} clients={clients} profile={profile} onStatusChange={load} />
+                <InvoiceRow
+                  key={inv.id}
+                  invoice={inv}
+                  clients={clients}
+                  profile={profile}
+                  settings={settings}
+                  onStatusChange={load}
+                />
               ))}
             </tbody>
           </table>
