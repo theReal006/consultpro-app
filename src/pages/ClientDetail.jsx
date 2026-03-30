@@ -379,24 +379,57 @@ export default function ClientDetail() {
   const [client, setClient] = useState(null)
   const [assessments, setAssessments] = useState([])
   const [profile, setProfile] = useState(null)
+  const [contacts, setContacts] = useState([])
   const [tab, setTab] = useState('overview')
   const [loading, setLoading] = useState(true)
 
-  const [activeChat, setActiveChat] = useState(null)       // { type, existing? }
+  const [activeChat, setActiveChat] = useState(null)
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
 
+  // Contact form state
+  const [showContactForm, setShowContactForm] = useState(false)
+  const [contactForm, setContactForm] = useState({ first_name: '', last_name: '', email: '', phone: '', title: '', notes: '' })
+  const [savingContact, setSavingContact] = useState(false)
+
   const load = async () => {
-    const [cliRes, assRes, profRes] = await Promise.all([
+    const [cliRes, assRes, profRes, ccRes] = await Promise.all([
       supabase.from('clients').select('*').eq('id', id).single(),
       supabase.from('workflow_assessments').select('*').eq('client_id', id).order('updated_at', { ascending: false }),
       supabase.from('profiles').select('*').eq('id', user.id).single(),
+      supabase.from('company_contacts').select('*, contact:contacts(*)').eq('company_id', id),
     ])
     setClient(cliRes.data)
     setNotes(cliRes.data?.notes || '')
     setAssessments(assRes.data || [])
     setProfile(profRes.data)
+    setContacts(ccRes.data || [])
     setLoading(false)
+  }
+
+  const addContact = async (e) => {
+    e.preventDefault()
+    setSavingContact(true)
+    // Create contact
+    const { data: newContact } = await supabase.from('contacts').insert({ ...contactForm, user_id: user.id }).select().single()
+    if (newContact) {
+      // Link to company
+      await supabase.from('company_contacts').insert({ company_id: id, contact_id: newContact.id, user_id: user.id })
+    }
+    setContactForm({ first_name: '', last_name: '', email: '', phone: '', title: '', notes: '' })
+    setShowContactForm(false)
+    setSavingContact(false)
+    load()
+  }
+
+  const linkExistingContact = async (contactId) => {
+    await supabase.from('company_contacts').insert({ company_id: id, contact_id: contactId, user_id: user.id })
+    load()
+  }
+
+  const removeContact = async (ccId) => {
+    await supabase.from('company_contacts').delete().eq('id', ccId)
+    load()
   }
 
   useEffect(() => { if (user && id) load() }, [user, id])
@@ -436,7 +469,7 @@ export default function ClientDetail() {
     ? (assessments.filter(a => a.score).reduce((s, a) => s + Number(a.score), 0) / assessments.filter(a => a.score).length).toFixed(1)
     : null
 
-  const TABS = ['overview', 'workflows', 'notes']
+  const TABS = ['overview', 'contacts', 'workflows', 'notes']
 
   return (
     <div>
@@ -538,6 +571,111 @@ export default function ClientDetail() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── Contacts tab ──────────────────────────────────────────────────── */}
+      {tab === 'contacts' && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-gray-500">People linked to this company. Contacts can be linked to multiple companies.</p>
+            <button onClick={() => setShowContactForm(v => !v)}
+              className="px-4 py-2 rounded-xl text-white text-sm font-semibold"
+              style={{ background: '#0042AA' }}>
+              + Add Contact
+            </button>
+          </div>
+
+          {/* Add contact form */}
+          {showContactForm && (
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+              <h3 className="font-bold text-sm mb-3" style={{ color: '#0A1628' }}>New Contact</h3>
+              <form onSubmit={addContact} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <input required placeholder="First name *" value={contactForm.first_name}
+                    onChange={e => setContactForm(f => ({ ...f, first_name: e.target.value }))}
+                    className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
+                  <input placeholder="Last name" value={contactForm.last_name}
+                    onChange={e => setContactForm(f => ({ ...f, last_name: e.target.value }))}
+                    className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
+                  <input type="email" placeholder="Email" value={contactForm.email}
+                    onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))}
+                    className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
+                  <input placeholder="Phone" value={contactForm.phone}
+                    onChange={e => setContactForm(f => ({ ...f, phone: e.target.value }))}
+                    className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
+                  <input placeholder="Title / Role" value={contactForm.title}
+                    onChange={e => setContactForm(f => ({ ...f, title: e.target.value }))}
+                    className="col-span-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
+                </div>
+                <textarea placeholder="Notes" rows={2} value={contactForm.notes}
+                  onChange={e => setContactForm(f => ({ ...f, notes: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm resize-none" />
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setShowContactForm(false)}
+                    className="flex-1 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={savingContact}
+                    className="flex-1 py-2 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
+                    style={{ background: '#0042AA' }}>
+                    {savingContact ? 'Saving…' : 'Add Contact'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Contacts list */}
+          {contacts.length === 0 ? (
+            <div className="text-center py-16 text-gray-400 bg-white rounded-2xl border border-gray-100">
+              No contacts linked yet. Add a contact above.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {contacts.map(cc => {
+                const c = cc.contact
+                if (!c) return null
+                return (
+                  <div key={cc.id} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white text-sm flex-shrink-0"
+                          style={{ background: '#0042AA' }}>
+                          {c.first_name?.[0]}{c.last_name?.[0]}
+                        </div>
+                        <div>
+                          <p className="font-bold text-sm" style={{ color: '#0A1628' }}>
+                            {c.first_name} {c.last_name}
+                          </p>
+                          {c.title && <p className="text-xs text-gray-400">{c.title}</p>}
+                        </div>
+                      </div>
+                      <button onClick={() => removeContact(cc.id)}
+                        className="text-gray-300 hover:text-red-400 text-lg leading-none">×</button>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      {c.email && (
+                        <p className="text-gray-500">
+                          <a href={`mailto:${c.email}`} className="hover:underline" style={{ color: '#0042AA' }}>
+                            ✉ {c.email}
+                          </a>
+                        </p>
+                      )}
+                      {c.phone && (
+                        <p className="text-gray-500">
+                          <a href={`tel:${c.phone}`}>📞 {c.phone}</a>
+                          {' '}
+                          <a href={`sms:${c.phone}`} className="text-xs ml-1" style={{ color: '#10B981' }}>💬 Text</a>
+                        </p>
+                      )}
+                    </div>
+                    {c.notes && <p className="text-xs text-gray-400 mt-2 pt-2 border-t border-gray-100">{c.notes}</p>}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
