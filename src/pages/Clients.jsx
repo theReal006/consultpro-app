@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
@@ -86,6 +87,7 @@ function AddClientModal({ onClose, onSave }) {
 }
 
 export default function Clients() {
+  const navigate = useNavigate()
   const [clients, setClients] = useState([])
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -161,6 +163,12 @@ export default function Clients() {
                     {client.billing_type}
                     {client.hourly_rate ? ` · $${client.hourly_rate}/hr` : ''}
                   </span>
+                  <button
+                    onClick={() => navigate(`/clients/${client.id}`)}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-80"
+                    style={{ background: '#EFF6FF', color: '#0042AA' }}>
+                    View →
+                  </button>
                 </div>
               </div>
             )

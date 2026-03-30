@@ -8,6 +8,7 @@ import CRM from './pages/CRM'
 import Billing from './pages/Billing'
 import Marketing from './pages/Marketing'
 import MyInfo from './pages/MyInfo'
+import ClientDetail from './pages/ClientDetail'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -32,6 +33,7 @@ function ProtectedRoutes() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/clients" element={<Clients />} />
+        <Route path="/clients/:id" element={<ClientDetail />} />
         <Route path="/crm" element={<CRM />} />
         <Route path="/billing" element={<Billing />} />
         <Route path="/marketing" element={<Marketing />} />
