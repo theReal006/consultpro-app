@@ -647,9 +647,10 @@ export default function ClientDetail() {
                           {c.first_name?.[0]}{c.last_name?.[0]}
                         </div>
                         <div>
-                          <p className="font-bold text-sm" style={{ color: '#0A1628' }}>
+                          <button onClick={() => navigate(`/contacts/${c.id}`)}
+                            className="font-bold text-sm hover:underline text-left" style={{ color: '#0042AA' }}>
                             {c.first_name} {c.last_name}
-                          </p>
+                          </button>
                           {c.title && <p className="text-xs text-gray-400">{c.title}</p>}
                         </div>
                       </div>

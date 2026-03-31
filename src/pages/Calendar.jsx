@@ -88,8 +88,27 @@ export default function Calendar() {
 
   const fetchGoogleCalendar = async (rangeStart, rangeEnd) => {
     try {
+      // Try session token first (available right after sign-in).
+      // Fall back to the persisted token saved in user_google_tokens.
       const { data: { session } } = await supabase.auth.getSession()
-      const token = session?.provider_token
+      let token = session?.provider_token
+
+      if (!token && user?.id) {
+        const { data: stored } = await supabase
+          .from('user_google_tokens')
+          .select('access_token, expires_at')
+          .eq('user_id', user.id)
+          .single()
+        if (stored?.access_token) {
+          // If token is expired, tell user to re-sign-in
+          if (stored.expires_at && new Date(stored.expires_at) < new Date()) {
+            setGcalError('gcal_expired')
+            return
+          }
+          token = stored.access_token
+        }
+      }
+
       if (!token) { setGcalError('gcal_no_token'); return }
 
       const tMin = rangeStart.toISOString()
@@ -184,7 +203,7 @@ export default function Calendar() {
 
   const gcalConnected = gcalEvents.length > 0
   const gcalSetupNeeded = gcalError === 'gcal_scope' || gcalError === 'gcal_unauthorized'
-  const gcalNoToken = gcalError === 'gcal_no_token'
+  const gcalNoToken = gcalError === 'gcal_no_token' || gcalError === 'gcal_expired'
 
   return (
     <div className="flex gap-6 h-full">

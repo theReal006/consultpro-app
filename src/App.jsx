@@ -11,6 +11,7 @@ import MyInfo from './pages/MyInfo'
 import ClientDetail from './pages/ClientDetail'
 import Tasks from './pages/Tasks'
 import Calendar from './pages/Calendar'
+import ContactDetail from './pages/ContactDetail'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -41,6 +42,7 @@ function ProtectedRoutes() {
         <Route path="/marketing" element={<Marketing />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/calendar" element={<Calendar />} />
+        <Route path="/contacts/:id" element={<ContactDetail />} />
         <Route path="/my-info" element={<MyInfo />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

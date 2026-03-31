@@ -16,15 +16,20 @@ const SOURCE_OPTIONS = ['Referral','LinkedIn','Website','Cold Outreach','Event',
 
 function LeadModal({ lead, onClose, onSave }) {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [form, setForm] = useState(lead || {
     name: '', contact_name: '', phone: '',
     industry: '', website: '', address: '',
     crm_stage: 'nurture', pipeline_value: '', source: '', notes: '',
   })
   const [contacts, setContacts] = useState([])
-  const [editingContact, setEditingContact] = useState(null) // contact being edited inline
+  const [editingContact, setEditingContact] = useState(null)
   const [showAddContact, setShowAddContact] = useState(false)
+  const [addMode, setAddMode] = useState('new') // 'new' | 'search'
   const [newContact, setNewContact] = useState({ first_name: '', last_name: '', email: '', phone: '', title: '' })
+  const [contactSearch, setContactSearch] = useState('')
+  const [contactSearchResults, setContactSearchResults] = useState([])
+  const [contactErr, setContactErr] = useState(null)
 
   useEffect(() => {
     if (lead?.id) loadContacts()
@@ -57,8 +62,9 @@ function LeadModal({ lead, onClose, onSave }) {
   }
 
   const addNewContact = async () => {
-    if (!newContact.first_name.trim()) return
-    const { data: cd } = await supabase.from('contacts').insert({
+    if (!newContact.first_name.trim()) { setContactErr('First name is required'); return }
+    setContactErr(null)
+    const { data: cd, error: ce } = await supabase.from('contacts').insert({
       user_id: user.id,
       first_name: newContact.first_name.trim(),
       last_name: newContact.last_name.trim(),
@@ -66,11 +72,40 @@ function LeadModal({ lead, onClose, onSave }) {
       phone: newContact.phone.trim() || null,
       title: newContact.title.trim() || null,
     }).select().single()
+    if (ce) { setContactErr(ce.message); return }
     if (cd?.id && lead?.id) {
-      await supabase.from('company_contacts').insert({ user_id: user.id, company_id: lead.id, contact_id: cd.id })
+      const { error: le } = await supabase.from('company_contacts').insert({
+        user_id: user.id, company_id: lead.id, contact_id: cd.id,
+      })
+      if (le) { setContactErr(le.message); return }
     }
     setNewContact({ first_name: '', last_name: '', email: '', phone: '', title: '' })
     setShowAddContact(false)
+    setContactErr(null)
+    loadContacts()
+  }
+
+  const searchExistingContacts = async (q) => {
+    setContactSearch(q)
+    if (q.length < 2) { setContactSearchResults([]); return }
+    const { data } = await supabase.from('contacts')
+      .select('id, first_name, last_name, email, title')
+      .eq('user_id', user.id)
+      .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,email.ilike.%${q}%`)
+      .limit(8)
+    // exclude already-linked
+    const linkedIds = new Set(contacts.map(c => c.id))
+    setContactSearchResults((data || []).filter(c => !linkedIds.has(c.id)))
+  }
+
+  const linkExistingContact = async (contact) => {
+    if (!lead?.id) return
+    setContactErr(null)
+    const { error } = await supabase.from('company_contacts').insert({
+      user_id: user.id, company_id: lead.id, contact_id: contact.id,
+    })
+    if (error) { setContactErr(error.message); return }
+    setContactSearch(''); setContactSearchResults([]); setShowAddContact(false)
     loadContacts()
   }
 
@@ -109,37 +144,84 @@ function LeadModal({ lead, onClose, onSave }) {
             <div className="border border-gray-200 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-bold" style={{ color: '#0A1628' }}>Linked Contacts</p>
-                <button type="button" onClick={() => setShowAddContact(v => !v)}
+                <button type="button" onClick={() => { setShowAddContact(v => !v); setContactErr(null) }}
                   className="text-xs px-2.5 py-1 rounded-lg font-semibold"
-                  style={{ background: '#EFF6FF', color: '#0042AA' }}>+ Add Contact</button>
+                  style={{ background: '#EFF6FF', color: '#0042AA' }}>+ Add / Link</button>
               </div>
 
               {showAddContact && (
                 <div className="mb-3 p-3 rounded-xl border border-blue-100 space-y-2" style={{ background: '#F8FAFF' }}>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input placeholder="First name *" value={newContact.first_name}
-                      onChange={e => setNewContact(p => ({ ...p, first_name: e.target.value }))}
-                      className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
-                    <input placeholder="Last name" value={newContact.last_name}
-                      onChange={e => setNewContact(p => ({ ...p, last_name: e.target.value }))}
-                      className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
-                    <input placeholder="Email" type="email" value={newContact.email}
-                      onChange={e => setNewContact(p => ({ ...p, email: e.target.value }))}
-                      className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
-                    <input placeholder="Phone" value={newContact.phone}
-                      onChange={e => setNewContact(p => ({ ...p, phone: e.target.value }))}
-                      className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
-                    <input placeholder="Title / Role" value={newContact.title}
-                      onChange={e => setNewContact(p => ({ ...p, title: e.target.value }))}
-                      className="col-span-2 px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                  {/* Tab toggle */}
+                  <div className="flex gap-1 mb-2">
+                    {[['new','Create new'],['search','Link existing']].map(([m, lbl]) => (
+                      <button key={m} type="button" onClick={() => { setAddMode(m); setContactErr(null) }}
+                        className="flex-1 py-1 rounded-lg text-xs font-semibold transition-all"
+                        style={addMode === m ? { background: '#0042AA', color: 'white' } : { background: 'white', color: '#6B7280', border: '1px solid #E5E7EB' }}>
+                        {lbl}
+                      </button>
+                    ))}
                   </div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setShowAddContact(false)}
-                      className="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500">Cancel</button>
-                    <button type="button" onClick={addNewContact}
-                      className="flex-1 py-1.5 rounded-lg text-white text-xs font-semibold"
-                      style={{ background: '#0042AA' }}>Save Contact</button>
-                  </div>
+
+                  {addMode === 'new' ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input placeholder="First name *" value={newContact.first_name}
+                          onChange={e => setNewContact(p => ({ ...p, first_name: e.target.value }))}
+                          className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                        <input placeholder="Last name" value={newContact.last_name}
+                          onChange={e => setNewContact(p => ({ ...p, last_name: e.target.value }))}
+                          className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                        <input placeholder="Email" type="email" value={newContact.email}
+                          onChange={e => setNewContact(p => ({ ...p, email: e.target.value }))}
+                          className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                        <input placeholder="Phone" value={newContact.phone}
+                          onChange={e => setNewContact(p => ({ ...p, phone: e.target.value }))}
+                          className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                        <input placeholder="Title / Role" value={newContact.title}
+                          onChange={e => setNewContact(p => ({ ...p, title: e.target.value }))}
+                          className="col-span-2 px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                      </div>
+                      {contactErr && <p className="text-xs text-red-500">{contactErr}</p>}
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => { setShowAddContact(false); setContactErr(null) }}
+                          className="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500">Cancel</button>
+                        <button type="button" onClick={addNewContact}
+                          className="flex-1 py-1.5 rounded-lg text-white text-xs font-semibold"
+                          style={{ background: '#0042AA' }}>Save Contact</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        placeholder="Search by name or email…"
+                        value={contactSearch}
+                        onChange={e => searchExistingContacts(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-200 text-xs"
+                        autoFocus
+                      />
+                      {contactSearchResults.length > 0 && (
+                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                          {contactSearchResults.map(c => (
+                            <div key={c.id} className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-blue-50 cursor-pointer"
+                              onClick={() => linkExistingContact(c)}>
+                              <div>
+                                <p className="text-xs font-semibold" style={{ color: '#0A1628' }}>{c.first_name} {c.last_name}</p>
+                                {c.email && <p className="text-xs text-gray-400">{c.email}</p>}
+                                {c.title && <p className="text-xs text-gray-400">{c.title}</p>}
+                              </div>
+                              <span className="text-xs px-2 py-0.5 rounded-lg font-semibold" style={{ background: '#EFF6FF', color: '#0042AA' }}>Link</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {contactSearch.length >= 2 && contactSearchResults.length === 0 && (
+                        <p className="text-xs text-gray-400 text-center py-2">No contacts found. Try "Create new" tab.</p>
+                      )}
+                      {contactErr && <p className="text-xs text-red-500">{contactErr}</p>}
+                      <button type="button" onClick={() => { setShowAddContact(false); setContactSearch(''); setContactErr(null) }}
+                        className="w-full py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500">Cancel</button>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -172,7 +254,10 @@ function LeadModal({ lead, onClose, onSave }) {
                 ) : (
                   <div key={c.id} className="flex items-center justify-between p-2.5 rounded-xl border border-gray-100">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold" style={{ color: '#0A1628' }}>{c.first_name} {c.last_name}</p>
+                      <button type="button" onClick={() => { onClose(); navigate(`/contacts/${c.id}`) }}
+                        className="text-xs font-semibold hover:underline text-left" style={{ color: '#0042AA' }}>
+                        {c.first_name} {c.last_name}
+                      </button>
                       {c.title && <p className="text-xs text-gray-400">{c.title}</p>}
                       <div className="flex gap-3 mt-0.5">
                         {c.email && <span className="text-xs text-gray-500">{c.email}</span>}
@@ -590,9 +675,10 @@ function ContactsView({ companies, navigate, onEmail }) {
                 return (
                   <tr key={contact.id} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="py-3 px-4">
-                      <p className="text-sm font-semibold" style={{ color: '#0A1628' }}>
+                      <button onClick={() => navigate(`/contacts/${contact.id}`)}
+                        className="text-sm font-semibold hover:underline text-left" style={{ color: '#0042AA' }}>
                         {contact.first_name} {contact.last_name}
-                      </p>
+                      </button>
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-500">{contact.title || '—'}</td>
                     <td className="py-3 px-4 text-sm text-gray-500">
