@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { jsPDF } from 'jspdf'
+import ActivityFeed from '../components/ActivityFeed'
+import TaskPanel from '../components/TaskPanel'
 
 // ─── Assessment config ────────────────────────────────────────────────────────
 const ASSESSMENTS = [
@@ -469,7 +471,7 @@ export default function ClientDetail() {
     ? (assessments.filter(a => a.score).reduce((s, a) => s + Number(a.score), 0) / assessments.filter(a => a.score).length).toFixed(1)
     : null
 
-  const TABS = ['overview', 'contacts', 'workflows', 'notes']
+  const TABS = ['overview', 'contacts', 'activity', 'tasks', 'workflows', 'notes']
 
   return (
     <div>
@@ -677,6 +679,16 @@ export default function ClientDetail() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Activity tab ──────────────────────────────────────────────────── */}
+      {tab === 'activity' && (
+        <ActivityFeed companyId={id} />
+      )}
+
+      {/* ── Tasks tab ─────────────────────────────────────────────────────── */}
+      {tab === 'tasks' && (
+        <TaskPanel companyId={id} />
       )}
 
       {/* ── Workflows tab ─────────────────────────────────────────────────── */}

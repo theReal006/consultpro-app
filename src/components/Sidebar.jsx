@@ -5,6 +5,7 @@ const NAV = [
   { to: '/', label: 'Dashboard', icon: '⊞' },
   { to: '/clients', label: 'Clients', icon: '👥' },
   { to: '/crm', label: 'CRM & Leads', icon: '📊' },
+  { to: '/tasks', label: 'Tasks', icon: '✅' },
   { to: '/billing', label: 'Billing', icon: '💳' },
   { to: '/marketing', label: 'Marketing', icon: '📣' },
   { to: '/my-info', label: 'My Info', icon: '⚙️' },
