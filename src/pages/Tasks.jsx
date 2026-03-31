@@ -10,7 +10,7 @@ const PRIORITIES = [
   { id: 'urgent', label: 'Urgent', color: '#EF4444', bg: '#FEF2F2' },
 ]
 
-const EMPTY = { title: '', description: '', due_date: '', priority: 'normal', company_id: '' }
+const EMPTY = { title: '', description: '', due_date: '', priority: 'normal', company_id: '', assigned_to_type: 'self', assigned_to_label: '' }
 
 function isOverdue(task) {
   return task.due_date && task.status !== 'done' && new Date(task.due_date) < new Date(new Date().toDateString())
@@ -30,8 +30,7 @@ export default function Tasks() {
 
   const load = async () => {
     const [tasksRes, clientsRes] = await Promise.all([
-      supabase
-        .from('tasks')
+      supabase.from('tasks')
         .select('*, company:clients(id, name), contact:contacts(id, first_name, last_name)')
         .eq('user_id', user.id)
         .order('due_date', { ascending: true, nullsFirst: false }),
@@ -47,10 +46,16 @@ export default function Tasks() {
   const save = async (e) => {
     e.preventDefault()
     setSaving(true)
+    const selectedClient = clients.find(c => c.id === form.company_id)
+    const assignedLabel =
+      form.assigned_to_type === 'self' ? 'Me' :
+      form.assigned_to_type === 'client' ? (selectedClient?.name || 'Client') :
+      form.assigned_to_label || 'Other'
     const payload = {
       ...form,
       user_id: user.id,
-      assigned_to: user.id,
+      assigned_to: form.assigned_to_type === 'self' ? user.id : null,
+      assigned_to_label: assignedLabel,
       due_date: form.due_date || null,
       company_id: form.company_id || null,
     }
@@ -63,17 +68,11 @@ export default function Tasks() {
 
   const toggle = async (task) => {
     const status = task.status === 'done' ? 'open' : 'done'
-    await supabase.from('tasks').update({
-      status,
-      completed_at: status === 'done' ? new Date().toISOString() : null,
-    }).eq('id', task.id)
+    await supabase.from('tasks').update({ status, completed_at: status === 'done' ? new Date().toISOString() : null }).eq('id', task.id)
     load()
   }
 
-  const del = async (id) => {
-    await supabase.from('tasks').delete().eq('id', id)
-    load()
-  }
+  const del = async (id) => { await supabase.from('tasks').delete().eq('id', id); load() }
 
   const filtered = tasks.filter(t => {
     const statusOk = filter === 'all' ? true : filter === 'done' ? t.status === 'done' : t.status !== 'done' && t.status !== 'cancelled'
@@ -81,10 +80,10 @@ export default function Tasks() {
     return statusOk && priOk
   })
 
-  const openCount  = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled').length
+  const openCount    = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled').length
   const overdueCount = tasks.filter(isOverdue).length
-  const doneCount  = tasks.filter(t => t.status === 'done').length
-  const urgentCount = tasks.filter(t => t.priority === 'urgent' && t.status !== 'done').length
+  const doneCount    = tasks.filter(t => t.status === 'done').length
+  const urgentCount  = tasks.filter(t => t.priority === 'urgent' && t.status !== 'done').length
 
   return (
     <div>
@@ -94,8 +93,7 @@ export default function Tasks() {
           <p className="text-sm text-gray-400 mt-0.5">Your to-dos across all clients and contacts</p>
         </div>
         <button onClick={() => setShowForm(v => !v)}
-          className="px-5 py-2.5 rounded-xl text-white font-semibold"
-          style={{ background: '#0042AA' }}>
+          className="px-5 py-2.5 rounded-xl text-white font-semibold" style={{ background: '#0042AA' }}>
           + New Task
         </button>
       </div>
@@ -104,9 +102,9 @@ export default function Tasks() {
       <div className="grid grid-cols-4 gap-4 mb-6">
         {[
           { label: 'Open',    value: openCount,    color: '#0042AA', bg: '#EFF6FF' },
-          { label: 'Overdue', value: overdueCount,  color: '#EF4444', bg: '#FEF2F2' },
-          { label: 'Urgent',  value: urgentCount,   color: '#F59E0B', bg: '#FFFBEB' },
-          { label: 'Done',    value: doneCount,     color: '#10B981', bg: '#ECFDF5' },
+          { label: 'Overdue', value: overdueCount, color: '#EF4444', bg: '#FEF2F2' },
+          { label: 'Urgent',  value: urgentCount,  color: '#F59E0B', bg: '#FFFBEB' },
+          { label: 'Done',    value: doneCount,    color: '#10B981', bg: '#ECFDF5' },
         ].map(({ label, value, color, bg }) => (
           <div key={label} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
             <p className="text-2xl font-bold" style={{ color }}>{value}</p>
@@ -135,41 +133,64 @@ export default function Tasks() {
               </div>
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Priority</label>
-                <select value={form.priority}
-                  onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
+                <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white">
                   {PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
               </div>
               <div>
-                <label className="text-xs text-gray-400 mb-1 block">Linked client (optional)</label>
-                <select value={form.company_id}
-                  onChange={e => setForm(f => ({ ...f, company_id: e.target.value }))}
+                <label className="text-xs text-gray-400 mb-1 block">Linked client</label>
+                <select value={form.company_id} onChange={e => setForm(f => ({ ...f, company_id: e.target.value }))}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white">
                   <option value="">— None —</option>
                   {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             </div>
+
+            {/* Assigned to */}
+            <div>
+              <label className="text-xs text-gray-400 mb-2 block">Assign to</label>
+              <div className="flex gap-2 mb-2">
+                {[['self','Me'],['client','Client'],['other','Other']].map(([val,lbl]) => (
+                  <button key={val} type="button"
+                    onClick={() => setForm(f => ({ ...f, assigned_to_type: val, assigned_to_label: '' }))}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all"
+                    style={form.assigned_to_type === val
+                      ? { background: '#0042AA', color: 'white', borderColor: '#0042AA' }
+                      : { background: 'white', color: '#6B7280', borderColor: '#E5E7EB' }}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+              {form.assigned_to_type === 'client' && form.company_id && (
+                <p className="text-xs text-gray-400 px-1">Assigned to: <span className="font-semibold">{clients.find(c => c.id === form.company_id)?.name || '—'}</span></p>
+              )}
+              {form.assigned_to_type === 'client' && !form.company_id && (
+                <p className="text-xs text-amber-600 px-1">Select a linked client above first</p>
+              )}
+              {form.assigned_to_type === 'other' && (
+                <input placeholder="Enter name…" value={form.assigned_to_label}
+                  onChange={e => setForm(f => ({ ...f, assigned_to_label: e.target.value }))}
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
+              )}
+            </div>
+
             <div className="flex gap-3">
               <button type="button" onClick={() => setShowForm(false)}
-                className="flex-1 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600">
-                Cancel
-              </button>
+                className="flex-1 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600">Cancel</button>
               <button type="submit" disabled={saving}
                 className="flex-1 py-2 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
-                style={{ background: '#0042AA' }}>
-                {saving ? 'Saving…' : 'Add Task'}
-              </button>
+                style={{ background: '#0042AA' }}>{saving ? 'Saving…' : 'Add Task'}</button>
             </div>
           </form>
         </div>
       )}
 
       {/* Filters */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="flex gap-1">
-          {[['open', 'Open'], ['done', 'Done'], ['all', 'All']].map(([val, lbl]) => (
+          {[['open','Open'],['done','Done'],['all','All']].map(([val,lbl]) => (
             <button key={val} onClick={() => setFilter(val)}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
               style={filter === val ? { background: '#0042AA', color: 'white' } : { background: '#F3F4F6', color: '#6B7280' }}>
@@ -177,7 +198,7 @@ export default function Tasks() {
             </button>
           ))}
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           <button onClick={() => setPriorityFilter('all')}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
             style={priorityFilter === 'all' ? { background: '#0A1628', color: 'white' } : { background: '#F3F4F6', color: '#6B7280' }}>
@@ -186,7 +207,9 @@ export default function Tasks() {
           {PRIORITIES.map(p => (
             <button key={p.id} onClick={() => setPriorityFilter(p.id)}
               className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-              style={priorityFilter === p.id ? { background: p.bg, color: p.color, outline: `1px solid ${p.color}` } : { background: '#F3F4F6', color: '#6B7280' }}>
+              style={priorityFilter === p.id
+                ? { background: p.bg, color: p.color, outline: `1px solid ${p.color}` }
+                : { background: '#F3F4F6', color: '#6B7280' }}>
               {p.label}
             </button>
           ))}
@@ -198,9 +221,7 @@ export default function Tasks() {
         <div className="text-center py-20 text-gray-400">Loading tasks…</div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-20 bg-white rounded-2xl border border-gray-100">
-          <p className="text-gray-400 text-sm">
-            {filter === 'done' ? 'No completed tasks.' : 'No open tasks. Hit "+ New Task" to get started.'}
-          </p>
+          <p className="text-gray-400 text-sm">{filter === 'done' ? 'No completed tasks.' : 'No open tasks. Hit "+ New Task" to get started.'}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -208,64 +229,41 @@ export default function Tasks() {
             const pri = PRIORITIES.find(p => p.id === task.priority) || PRIORITIES[1]
             const overdue = isOverdue(task)
             return (
-              <div key={task.id}
-                className="bg-white rounded-xl p-4 shadow-sm border flex items-start gap-3"
+              <div key={task.id} className="bg-white rounded-xl p-4 shadow-sm border flex items-start gap-3"
                 style={{ borderColor: overdue ? '#FCA5A5' : '#F3F4F6' }}>
-
                 <button onClick={() => toggle(task)}
                   className="w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 mt-0.5 transition-all"
-                  style={task.status === 'done'
-                    ? { background: '#10B981', borderColor: '#10B981' }
-                    : { borderColor: '#D1D5DB' }}>
+                  style={task.status === 'done' ? { background: '#10B981', borderColor: '#10B981' } : { borderColor: '#D1D5DB' }}>
                   {task.status === 'done' && <span className="text-white text-xs font-bold">✓</span>}
                 </button>
-
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`text-sm font-semibold ${task.status === 'done' ? 'line-through text-gray-400' : ''}`}
-                      style={task.status !== 'done' ? { color: '#0A1628' } : {}}>
-                      {task.title}
-                    </span>
+                      style={task.status !== 'done' ? { color: '#0A1628' } : {}}>{task.title}</span>
                     <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md"
-                      style={{ background: pri.bg, color: pri.color }}>
-                      {pri.label}
-                    </span>
-                    {overdue && (
-                      <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md"
-                        style={{ background: '#FEF2F2', color: '#EF4444' }}>
-                        Overdue
-                      </span>
-                    )}
+                      style={{ background: pri.bg, color: pri.color }}>{pri.label}</span>
+                    {overdue && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md" style={{ background: '#FEF2F2', color: '#EF4444' }}>Overdue</span>}
                   </div>
-
-                  {task.description && (
-                    <p className="text-xs text-gray-500 mt-1">{task.description}</p>
-                  )}
-
+                  {task.description && <p className="text-xs text-gray-500 mt-1">{task.description}</p>}
                   <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                     {task.due_date && (
                       <p className="text-xs" style={{ color: overdue ? '#EF4444' : '#9CA3AF' }}>
-                        📅 Due {new Date(task.due_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        📅 {new Date(task.due_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       </p>
                     )}
+                    {task.assigned_to_label && <p className="text-xs text-gray-400">👤 {task.assigned_to_label}</p>}
                     {task.company && (
-                      <button
-                        onClick={() => navigate(`/clients/${task.company.id}`)}
-                        className="text-xs font-semibold hover:underline"
-                        style={{ color: '#0042AA' }}>
+                      <button onClick={() => navigate(`/clients/${task.company.id}`)}
+                        className="text-xs font-semibold hover:underline" style={{ color: '#0042AA' }}>
                         🏢 {task.company.name}
                       </button>
                     )}
                     {task.contact && (
-                      <span className="text-xs text-gray-400">
-                        👤 {task.contact.first_name} {task.contact.last_name}
-                      </span>
+                      <span className="text-xs text-gray-400">👤 {task.contact.first_name} {task.contact.last_name}</span>
                     )}
                   </div>
                 </div>
-
-                <button onClick={() => del(task.id)}
-                  className="text-gray-300 hover:text-red-400 text-lg leading-none flex-shrink-0">×</button>
+                <button onClick={() => del(task.id)} className="text-gray-300 hover:text-red-400 text-lg leading-none flex-shrink-0">×</button>
               </div>
             )
           })}

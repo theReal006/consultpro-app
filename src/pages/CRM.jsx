@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Papa from 'papaparse'
@@ -216,8 +217,210 @@ function CSVImportModal({ onClose, onSave }) {
   )
 }
 
+function AddContactModal({ companies, onClose, onSave }) {
+  const { user } = useAuth()
+  const [form, setForm] = useState({
+    first_name: '', last_name: '', email: '', phone: '', title: '', company_id: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+  const cls = 'w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-blue-300'
+  const f = key => ({ value: form[key], onChange: e => setForm(p => ({ ...p, [key]: e.target.value })) })
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.first_name.trim()) { setErr('First name is required'); return }
+    setSaving(true); setErr(null)
+    // insert contact
+    const { data: contactData, error: contactErr } = await supabase.from('contacts').insert({
+      user_id: user.id,
+      first_name: form.first_name.trim(),
+      last_name: form.last_name.trim(),
+      email: form.email.trim() || null,
+      phone: form.phone.trim() || null,
+      title: form.title.trim() || null,
+    }).select().single()
+    if (contactErr) { setErr(contactErr.message); setSaving(false); return }
+
+    // link to company if selected
+    if (form.company_id && contactData?.id) {
+      await supabase.from('company_contacts').insert({
+        user_id: user.id,
+        company_id: form.company_id,
+        contact_id: contactData.id,
+      })
+    }
+    setSaving(false)
+    onSave()
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+        <h2 className="text-lg font-bold mb-4" style={{ color: '#0A1628' }}>Add Contact</h2>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">First name *</label>
+              <input required placeholder="First name" className={cls} {...f('first_name')} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Last name</label>
+              <input placeholder="Last name" className={cls} {...f('last_name')} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Email</label>
+              <input type="email" placeholder="Email" className={cls} {...f('email')} />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Phone</label>
+              <input placeholder="Phone" className={cls} {...f('phone')} />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Title / Role</label>
+            <input placeholder="e.g. CEO, Marketing Director" className={cls} {...f('title')} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Link to company (optional)</label>
+            <select className={`${cls} bg-white`} {...f('company_id')}>
+              <option value="">— No company —</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          {err && <p className="text-xs text-red-500">{err}</p>}
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600">Cancel</button>
+            <button type="submit" disabled={saving}
+              className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
+              style={{ background: '#0042AA' }}>{saving ? 'Saving…' : 'Add Contact'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function ContactsView({ companies, navigate }) {
+  const { user } = useAuth()
+  const [contacts, setContacts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    const load = async () => {
+      // get all contacts that are linked to CRM companies via company_contacts
+      const crmIds = companies.map(c => c.id)
+      if (crmIds.length === 0) { setContacts([]); setLoading(false); return }
+      const { data } = await supabase
+        .from('company_contacts')
+        .select('contact_id, company_id, contacts(id, first_name, last_name, email, phone, title)')
+        .eq('user_id', user.id)
+        .in('company_id', crmIds)
+      const companyMap = {}
+      companies.forEach(c => { companyMap[c.id] = c })
+      const rows = (data || []).map(row => ({
+        ...row.contacts,
+        company: companyMap[row.company_id],
+        company_id: row.company_id,
+      })).filter(Boolean)
+      // deduplicate by contact id (keep first company link)
+      const seen = new Set()
+      const deduped = rows.filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true })
+      setContacts(deduped)
+      setLoading(false)
+    }
+    load()
+  }, [user, companies])
+
+  const filtered = contacts.filter(c =>
+    !search ||
+    `${c.first_name} ${c.last_name}`.toLowerCase().includes(search.toLowerCase()) ||
+    (c.email || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.company?.name || '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  if (loading) return <div className="text-center py-20 text-gray-400">Loading contacts…</div>
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search contacts…"
+          className="px-4 py-2 rounded-xl border border-gray-200 text-sm bg-white w-64 focus:outline-none" />
+        <span className="text-sm text-gray-400">{filtered.length} contact{filtered.length !== 1 ? 's' : ''}</span>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="text-center py-20 bg-white rounded-2xl border border-gray-100">
+          <p className="text-gray-400 text-sm">No contacts yet. Use "+ Add Contact" to create one linked to a pipeline company.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-100">
+                {['Name','Title','Email','Phone','Company','Stage',''].map(h => (
+                  <th key={h} className="text-left py-3 px-4 text-xs font-bold text-gray-400 uppercase">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(contact => {
+                const stage = STAGES.find(s => s.id === contact.company?.crm_stage)
+                return (
+                  <tr key={contact.id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-3 px-4">
+                      <p className="text-sm font-semibold" style={{ color: '#0A1628' }}>
+                        {contact.first_name} {contact.last_name}
+                      </p>
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-500">{contact.title || '—'}</td>
+                    <td className="py-3 px-4 text-sm text-gray-500">
+                      {contact.email
+                        ? <a href={`mailto:${contact.email}`} className="hover:underline" style={{ color: '#0042AA' }}>{contact.email}</a>
+                        : '—'}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-gray-500">
+                      {contact.phone
+                        ? <a href={`tel:${contact.phone}`} className="hover:underline">{contact.phone}</a>
+                        : '—'}
+                    </td>
+                    <td className="py-3 px-4">
+                      {contact.company ? (
+                        <button onClick={() => navigate(`/clients/${contact.company.id}`)}
+                          className="text-xs font-semibold hover:underline" style={{ color: '#0042AA' }}>
+                          🏢 {contact.company.name}
+                        </button>
+                      ) : '—'}
+                    </td>
+                    <td className="py-3 px-4">
+                      {stage && (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                          style={{ background: stage.bg, color: stage.color }}>{stage.label}</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <button onClick={() => navigate(`/clients/${contact.company_id}`)}
+                        className="text-xs px-2 py-1 rounded-lg hover:bg-blue-100 transition-colors"
+                        style={{ color: '#0042AA' }}>View →</button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function CRM() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [companies, setCompanies] = useState([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState('kanban')
@@ -229,6 +432,7 @@ export default function CRM() {
   const [editLead, setEditLead] = useState(null)
   const [emailLead, setEmailLead] = useState(null)
   const [showCSV, setShowCSV] = useState(false)
+  const [showAddContact, setShowAddContact] = useState(false)
 
   const load = async () => {
     const { data } = await supabase.from('clients').select('*').not('crm_stage', 'is', null).order('created_at', { ascending: false })
@@ -273,6 +477,10 @@ export default function CRM() {
             className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
             ↑ CSV Import
           </button>
+          <button onClick={() => setShowAddContact(true)}
+            className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
+            + Add Contact
+          </button>
           <button onClick={() => { setEditLead(null); setShowModal(true) }}
             className="px-5 py-2.5 rounded-xl text-white font-semibold text-sm" style={{ background: '#0042AA' }}>
             + Add Company
@@ -280,40 +488,44 @@ export default function CRM() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 mb-5">
+      <div className="flex flex-wrap items-center gap-3 mb-5" style={view === 'contacts' ? { marginBottom: 0 } : {}}>
         <div className="flex bg-white border border-gray-200 rounded-xl p-1">
-          {['kanban','list'].map(v => (
-            <button key={v} onClick={() => setView(v)}
-              className="px-4 py-1.5 rounded-lg text-sm font-semibold capitalize transition-all"
-              style={view === v ? { background: '#0042AA', color: 'white' } : { color: '#6B7280' }}>
-              {v}
+          {[['kanban','Kanban'],['list','List'],['contacts','Contacts']].map(([val,lbl]) => (
+            <button key={val} onClick={() => setView(val)}
+              className="px-4 py-1.5 rounded-lg text-sm font-semibold transition-all"
+              style={view === val ? { background: '#0042AA', color: 'white' } : { color: '#6B7280' }}>
+              {lbl}
             </button>
           ))}
         </div>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search companies…"
-          className="px-4 py-2 rounded-xl border border-gray-200 text-sm bg-white w-48 focus:outline-none" />
-        <select value={filterStage} onChange={e => setFilterStage(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none">
-          <option value="all">All stages</option>
-          {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-        </select>
-        <select value={filterSource} onChange={e => setFilterSource(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none">
-          <option value="all">All sources</option>
-          {SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        {view === 'list' && (
-          <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+        {view !== 'contacts' && <>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search companies…"
+            className="px-4 py-2 rounded-xl border border-gray-200 text-sm bg-white w-48 focus:outline-none" />
+          <select value={filterStage} onChange={e => setFilterStage(e.target.value)}
             className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none">
-            <option value="created_at">Date added</option>
-            <option value="pipeline_value">Value ↓</option>
-            <option value="name">Name A–Z</option>
+            <option value="all">All stages</option>
+            {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
-        )}
+          <select value={filterSource} onChange={e => setFilterSource(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none">
+            <option value="all">All sources</option>
+            {SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          {view === 'list' && (
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white focus:outline-none">
+              <option value="created_at">Date added</option>
+              <option value="pipeline_value">Value ↓</option>
+              <option value="name">Name A–Z</option>
+            </select>
+          )}
+        </>}
       </div>
 
       {loading ? (
         <div className="text-center py-20 text-gray-400">Loading pipeline…</div>
+      ) : view === 'contacts' ? (
+        <ContactsView companies={companies} navigate={navigate} />
       ) : view === 'kanban' ? (
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
           {STAGES.map(stage => {
@@ -403,6 +615,7 @@ export default function CRM() {
       {showModal && <LeadModal lead={editLead} onClose={() => { setShowModal(false); setEditLead(null) }} onSave={load} />}
       {emailLead && <EmailModal lead={emailLead} onClose={() => { setEmailLead(null); load() }} />}
       {showCSV && <CSVImportModal onClose={() => setShowCSV(false)} onSave={load} />}
+      {showAddContact && <AddContactModal companies={companies} onClose={() => setShowAddContact(false)} onSave={load} />}
     </div>
   )
 }

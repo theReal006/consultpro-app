@@ -688,7 +688,7 @@ export default function ClientDetail() {
 
       {/* ── Tasks tab ─────────────────────────────────────────────────────── */}
       {tab === 'tasks' && (
-        <TaskPanel companyId={id} />
+        <TaskPanel companyId={id} companyName={client?.name} />
       )}
 
       {/* ── Workflows tab ─────────────────────────────────────────────────── */}
