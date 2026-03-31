@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -171,6 +171,20 @@ export default function Calendar() {
   }
 
   const selectedItems = selectedDay ? (itemsByDay[selectedDay] || []) : []
+  const [showGcalHelp, setShowGcalHelp] = useState(false)
+  const gcalHelpRef = useRef(null)
+
+  // close help popover on outside click
+  useEffect(() => {
+    if (!showGcalHelp) return
+    const handler = (e) => { if (gcalHelpRef.current && !gcalHelpRef.current.contains(e.target)) setShowGcalHelp(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showGcalHelp])
+
+  const gcalConnected = gcalEvents.length > 0
+  const gcalSetupNeeded = gcalError === 'gcal_scope' || gcalError === 'gcal_unauthorized'
+  const gcalNoToken = gcalError === 'gcal_no_token'
 
   return (
     <div className="flex gap-6 h-full">
@@ -183,6 +197,47 @@ export default function Calendar() {
             <p className="text-sm text-gray-400 mt-0.5">Tasks, meetings & Google Calendar</p>
           </div>
           <div className="flex items-center gap-2">
+            {/* Google Calendar status pill */}
+            <div className="relative" ref={gcalHelpRef}>
+              {gcalConnected ? (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+                  style={{ background: '#ECFDF5', color: '#059669' }}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span> Google Calendar
+                </span>
+              ) : (gcalSetupNeeded || gcalNoToken) ? (
+                <button onClick={() => setShowGcalHelp(v => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors hover:bg-gray-50"
+                  style={{ borderColor: '#E5E7EB', color: '#6B7280' }}>
+                  🗓️ Connect Google Cal
+                </button>
+              ) : null}
+              {showGcalHelp && (
+                <div className="absolute right-0 top-10 z-50 w-80 bg-white rounded-2xl shadow-xl border border-gray-100 p-4">
+                  <p className="text-sm font-bold mb-2" style={{ color: '#0A1628' }}>Connect Google Calendar</p>
+                  {gcalSetupNeeded ? (
+                    <>
+                      <p className="text-xs text-gray-500 mb-3">The <code className="bg-gray-100 px-1 rounded text-xs">calendar.readonly</code> scope needs to be added to your Google OAuth setup. Follow these two steps:</p>
+                      <ol className="text-xs text-gray-600 space-y-2 list-decimal list-inside mb-3">
+                        <li>
+                          Open{' '}
+                          <a href="https://supabase.com/dashboard/project/nxgzgphocxhbqqpjvitr/auth/providers"
+                            target="_blank" rel="noreferrer" className="font-semibold underline" style={{ color: '#0042AA' }}>
+                            Supabase → Auth → Providers → Google
+                          </a>
+                          {' '}and add this to <strong>Additional OAuth Scopes</strong>:<br />
+                          <code className="block mt-1 bg-gray-100 px-2 py-1 rounded text-xs break-all">https://www.googleapis.com/auth/calendar.readonly</code>
+                        </li>
+                        <li>Sign out of the app and sign back in with Google.</li>
+                      </ol>
+                    </>
+                  ) : (
+                    <p className="text-xs text-gray-500 mb-3">Sign out and sign back in with Google to connect your calendar.</p>
+                  )}
+                  <button onClick={() => setShowGcalHelp(false)}
+                    className="w-full py-2 rounded-xl text-xs font-semibold text-gray-500 border border-gray-200 hover:bg-gray-50">Got it</button>
+                </div>
+              )}
+            </div>
             <button onClick={goToday}
               className="px-4 py-2 rounded-xl text-sm font-semibold border border-gray-200 text-gray-600 hover:bg-gray-50">
               Today
@@ -200,26 +255,6 @@ export default function Calendar() {
             </button>
           </div>
         </div>
-
-        {/* Google Calendar notice */}
-        {gcalError === 'gcal_no_token' && (
-          <div className="mb-4 px-4 py-3 rounded-xl border text-sm flex items-center gap-2"
-            style={{ background: '#FFFBEB', borderColor: '#FCD34D', color: '#92400E' }}>
-            <span>⚠️</span>
-            <span>Google Calendar not connected. Sign out and sign back in with Google to enable it.</span>
-          </div>
-        )}
-        {gcalError === 'gcal_scope' && (
-          <div className="mb-4 px-4 py-3 rounded-xl border text-sm flex items-center gap-2"
-            style={{ background: '#FFFBEB', borderColor: '#FCD34D', color: '#92400E' }}>
-            <span>⚠️</span>
-            <span>
-              Google Calendar access needs to be enabled. Add <code className="bg-amber-100 px-1 rounded">https://www.googleapis.com/auth/calendar.readonly</code> scope in your{' '}
-              <a href="https://supabase.com/dashboard/project/nxgzgphocxhbqqpjvitr/auth/providers" target="_blank" rel="noreferrer"
-                className="underline font-semibold">Supabase Auth settings</a>, then sign back in.
-            </span>
-          </div>
-        )}
 
         {/* Legend */}
         <div className="flex items-center gap-4 mb-3 text-xs text-gray-500 flex-wrap">

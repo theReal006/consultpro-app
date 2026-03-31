@@ -171,7 +171,7 @@ export default function Clients() {
   const [clients, setClients] = useState([])
   const [invoiceClientIds, setInvoiceClientIds] = useState(new Set())
   const [search, setSearch] = useState('')
-  const [activeFilter, setActiveFilter] = useState('active')
+  const [activeFilters, setActiveFilters] = useState(new Set(['active']))
   const [showModal, setShowModal] = useState(false)
   const [crmTarget, setCrmTarget] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -195,9 +195,24 @@ export default function Clients() {
     return Math.floor((Date.now() - new Date(date).getTime()) / (1000 * 60 * 60 * 24))
   }
 
-  const applyFilter = (c) => {
+  const toggleFilter = (id) => {
+    setActiveFilters(prev => {
+      const next = new Set(prev)
+      if (id === 'all') return new Set(['all'])
+      next.delete('all')
+      if (next.has(id)) {
+        next.delete(id)
+        if (next.size === 0) next.add('all')
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  const matchesFilter = (c, filterId) => {
     const d = daysSince(c.last_contacted_at)
-    switch (activeFilter) {
+    switch (filterId) {
       case 'active':        return c.status === 'active'
       case 'prospect':      return c.status === 'prospect'
       case 'inactive':      return c.status === 'inactive'
@@ -211,8 +226,13 @@ export default function Clients() {
     }
   }
 
+  const applyFilters = (c) => {
+    if (activeFilters.has('all')) return true
+    return [...activeFilters].some(fid => matchesFilter(c, fid))
+  }
+
   const filtered = clients.filter(c =>
-    applyFilter(c) &&
+    applyFilters(c) &&
     (c.name.toLowerCase().includes(search.toLowerCase()) ||
      (c.contact_name || '').toLowerCase().includes(search.toLowerCase()))
   )
@@ -229,17 +249,20 @@ export default function Clients() {
           style={{ background: '#0042AA' }}>+ Add Client</button>
       </div>
 
-      {/* Filter bar */}
+      {/* Filter bar — multi-select */}
       <div className="flex gap-2 flex-wrap mb-4">
-        {FILTERS.map(f => (
-          <button key={f.id} onClick={() => setActiveFilter(f.id)} title={f.desc}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border"
-            style={activeFilter === f.id
-              ? { background: '#0042AA', color: 'white', borderColor: '#0042AA' }
-              : { background: 'white', color: '#6B7280', borderColor: '#E5E7EB' }}>
-            {f.label}
-          </button>
-        ))}
+        {FILTERS.map(f => {
+          const isOn = activeFilters.has(f.id)
+          return (
+            <button key={f.id} onClick={() => toggleFilter(f.id)} title={f.desc}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border"
+              style={isOn
+                ? { background: '#0042AA', color: 'white', borderColor: '#0042AA' }
+                : { background: 'white', color: '#6B7280', borderColor: '#E5E7EB' }}>
+              {f.label}
+            </button>
+          )
+        })}
       </div>
 
       <div className="mb-5">
@@ -252,7 +275,7 @@ export default function Clients() {
         <div className="text-center py-16 text-gray-400">Loading clients…</div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-gray-400 bg-white rounded-2xl border border-gray-100">
-          {search ? 'No clients match your search.' : `No clients match "${FILTERS.find(f => f.id === activeFilter)?.label}".`}
+          {search ? 'No clients match your search.' : 'No clients match the selected filters.'}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

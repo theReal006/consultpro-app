@@ -17,10 +17,27 @@ const SOURCE_OPTIONS = ['Referral','LinkedIn','Website','Cold Outreach','Event',
 function LeadModal({ lead, onClose, onSave }) {
   const { user } = useAuth()
   const [form, setForm] = useState(lead || {
-    name: '', contact_name: '', email: '', phone: '',
+    name: '', contact_name: '', phone: '',
     industry: '', website: '', address: '',
     crm_stage: 'nurture', pipeline_value: '', source: '', notes: '',
   })
+  const [contacts, setContacts] = useState([])
+  const [editingContact, setEditingContact] = useState(null) // contact being edited inline
+  const [showAddContact, setShowAddContact] = useState(false)
+  const [newContact, setNewContact] = useState({ first_name: '', last_name: '', email: '', phone: '', title: '' })
+
+  useEffect(() => {
+    if (lead?.id) loadContacts()
+  }, [lead?.id])
+
+  const loadContacts = async () => {
+    const { data } = await supabase
+      .from('company_contacts')
+      .select('contacts(id, first_name, last_name, email, phone, title)')
+      .eq('user_id', user.id)
+      .eq('company_id', lead.id)
+    setContacts((data || []).map(r => r.contacts).filter(Boolean))
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -30,33 +47,150 @@ function LeadModal({ lead, onClose, onSave }) {
     onSave(); onClose()
   }
 
+  const saveContactEdit = async (c) => {
+    await supabase.from('contacts').update({
+      first_name: c.first_name, last_name: c.last_name,
+      email: c.email || null, phone: c.phone || null, title: c.title || null,
+    }).eq('id', c.id)
+    setEditingContact(null)
+    loadContacts()
+  }
+
+  const addNewContact = async () => {
+    if (!newContact.first_name.trim()) return
+    const { data: cd } = await supabase.from('contacts').insert({
+      user_id: user.id,
+      first_name: newContact.first_name.trim(),
+      last_name: newContact.last_name.trim(),
+      email: newContact.email.trim() || null,
+      phone: newContact.phone.trim() || null,
+      title: newContact.title.trim() || null,
+    }).select().single()
+    if (cd?.id && lead?.id) {
+      await supabase.from('company_contacts').insert({ user_id: user.id, company_id: lead.id, contact_id: cd.id })
+    }
+    setNewContact({ first_name: '', last_name: '', email: '', phone: '', title: '' })
+    setShowAddContact(false)
+    loadContacts()
+  }
+
+  const unlinkContact = async (contactId) => {
+    await supabase.from('company_contacts').delete().eq('company_id', lead.id).eq('contact_id', contactId)
+    loadContacts()
+  }
+
   const f = (key) => ({ value: form[key] || '', onChange: e => setForm(p => ({ ...p, [key]: e.target.value })) })
   const cls = 'w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-blue-300'
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl p-6 max-h-[92vh] overflow-y-auto">
         <h2 className="text-lg font-bold mb-4" style={{ color: '#0A1628' }}>{lead?.id ? 'Edit Company' : 'Add to Pipeline'}</h2>
         <form onSubmit={handleSubmit} className="space-y-3">
           <input required placeholder="Company name *" className={cls} {...f('name')} />
           <div className="grid grid-cols-2 gap-3">
-            <input placeholder="Contact name" className={cls} {...f('contact_name')} />
-            <input type="email" placeholder="Email" className={cls} {...f('email')} />
+            <input placeholder="Primary contact name" className={cls} {...f('contact_name')} />
             <input placeholder="Phone" className={cls} {...f('phone')} />
             <input placeholder="Industry" className={cls} {...f('industry')} />
             <input placeholder="Website" className={cls} {...f('website')} />
             <input type="number" placeholder="Pipeline value ($)" className={cls} {...f('pipeline_value')} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <select className={cls} {...f('crm_stage')}>
-              {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-            </select>
-            <select className={cls} {...f('source')}>
+            <select className={`${cls} bg-white`} {...f('source')}>
               <option value="">Source…</option>
               {SOURCE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
-          <textarea placeholder="Notes" rows={3} className={`${cls} resize-none`} {...f('notes')} />
+          <select className={`${cls} bg-white`} {...f('crm_stage')}>
+            {STAGES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <textarea placeholder="Notes" rows={2} className={`${cls} resize-none`} {...f('notes')} />
+
+          {/* ── Contacts section (edit mode only) ── */}
+          {lead?.id && (
+            <div className="border border-gray-200 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-bold" style={{ color: '#0A1628' }}>Linked Contacts</p>
+                <button type="button" onClick={() => setShowAddContact(v => !v)}
+                  className="text-xs px-2.5 py-1 rounded-lg font-semibold"
+                  style={{ background: '#EFF6FF', color: '#0042AA' }}>+ Add Contact</button>
+              </div>
+
+              {showAddContact && (
+                <div className="mb-3 p-3 rounded-xl border border-blue-100 space-y-2" style={{ background: '#F8FAFF' }}>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input placeholder="First name *" value={newContact.first_name}
+                      onChange={e => setNewContact(p => ({ ...p, first_name: e.target.value }))}
+                      className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                    <input placeholder="Last name" value={newContact.last_name}
+                      onChange={e => setNewContact(p => ({ ...p, last_name: e.target.value }))}
+                      className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                    <input placeholder="Email" type="email" value={newContact.email}
+                      onChange={e => setNewContact(p => ({ ...p, email: e.target.value }))}
+                      className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                    <input placeholder="Phone" value={newContact.phone}
+                      onChange={e => setNewContact(p => ({ ...p, phone: e.target.value }))}
+                      className="px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                    <input placeholder="Title / Role" value={newContact.title}
+                      onChange={e => setNewContact(p => ({ ...p, title: e.target.value }))}
+                      className="col-span-2 px-3 py-2 rounded-lg border border-gray-200 text-xs" />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setShowAddContact(false)}
+                      className="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500">Cancel</button>
+                    <button type="button" onClick={addNewContact}
+                      className="flex-1 py-1.5 rounded-lg text-white text-xs font-semibold"
+                      style={{ background: '#0042AA' }}>Save Contact</button>
+                  </div>
+                </div>
+              )}
+
+              {contacts.length === 0 && !showAddContact && (
+                <p className="text-xs text-gray-400 text-center py-2">No contacts linked yet.</p>
+              )}
+
+              <div className="space-y-2">
+                {contacts.map(c => editingContact?.id === c.id ? (
+                  <div key={c.id} className="p-3 rounded-xl border border-blue-100 space-y-2" style={{ background: '#F8FAFF' }}>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={editingContact.first_name} onChange={e => setEditingContact(p => ({ ...p, first_name: e.target.value }))}
+                        className="px-3 py-2 rounded-lg border border-gray-200 text-xs" placeholder="First name" />
+                      <input value={editingContact.last_name} onChange={e => setEditingContact(p => ({ ...p, last_name: e.target.value }))}
+                        className="px-3 py-2 rounded-lg border border-gray-200 text-xs" placeholder="Last name" />
+                      <input value={editingContact.email || ''} onChange={e => setEditingContact(p => ({ ...p, email: e.target.value }))}
+                        className="px-3 py-2 rounded-lg border border-gray-200 text-xs" placeholder="Email" />
+                      <input value={editingContact.phone || ''} onChange={e => setEditingContact(p => ({ ...p, phone: e.target.value }))}
+                        className="px-3 py-2 rounded-lg border border-gray-200 text-xs" placeholder="Phone" />
+                      <input value={editingContact.title || ''} onChange={e => setEditingContact(p => ({ ...p, title: e.target.value }))}
+                        className="col-span-2 px-3 py-2 rounded-lg border border-gray-200 text-xs" placeholder="Title / Role" />
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setEditingContact(null)}
+                        className="flex-1 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500">Cancel</button>
+                      <button type="button" onClick={() => saveContactEdit(editingContact)}
+                        className="flex-1 py-1.5 rounded-lg text-white text-xs font-semibold" style={{ background: '#0042AA' }}>Save</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={c.id} className="flex items-center justify-between p-2.5 rounded-xl border border-gray-100">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold" style={{ color: '#0A1628' }}>{c.first_name} {c.last_name}</p>
+                      {c.title && <p className="text-xs text-gray-400">{c.title}</p>}
+                      <div className="flex gap-3 mt-0.5">
+                        {c.email && <span className="text-xs text-gray-500">{c.email}</span>}
+                        {c.phone && <span className="text-xs text-gray-500">{c.phone}</span>}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 ml-2 flex-shrink-0">
+                      <button type="button" onClick={() => setEditingContact({ ...c })}
+                        className="text-xs px-2 py-1 rounded-lg" style={{ background: '#F5F3FF', color: '#6366F1' }}>✎</button>
+                      <button type="button" onClick={() => unlinkContact(c.id)}
+                        className="text-xs px-2 py-1 rounded-lg" style={{ background: '#FEF2F2', color: '#EF4444' }}>✕</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600">Cancel</button>
             <button type="submit" className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold" style={{ background: '#0042AA' }}>
@@ -69,34 +203,39 @@ function LeadModal({ lead, onClose, onSave }) {
   )
 }
 
-function EmailModal({ lead, onClose }) {
-  const [subject, setSubject] = useState(`Following up — ${lead.name}`)
+// contact = { name, email, companyId, companyName }
+function EmailModal({ contact, onClose }) {
+  const [subject, setSubject] = useState(`Following up — ${contact.companyName || contact.name}`)
   const [body, setBody] = useState('')
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState(null)
 
   const send = async () => {
-    if (!lead.email) { setResult('❌ No email address on file'); return }
+    if (!contact.email) { setResult('❌ No email address on file'); return }
     setSending(true)
     const token = (await supabase.auth.getSession()).data?.session?.access_token
     const res = await supabase.functions.invoke('send-invoice', {
-      body: { to: lead.email, to_name: lead.contact_name || lead.name, subject,
-        body: `<div style="font-family:sans-serif;padding:24px;color:#0A1628">${body.replace(/\n/g,'<br>')}</div>` },
+      body: {
+        to: contact.email,
+        to_name: contact.name,
+        subject,
+        body: `<div style="font-family:sans-serif;padding:24px;color:#0A1628">${body.replace(/\n/g,'<br>')}</div>`,
+      },
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
     setResult(res.data?.success ? '✅ Email sent!' : `❌ ${res.data?.error || 'Failed'}`)
     setSending(false)
-    if (res.data?.success) {
-      const note = `[${new Date().toLocaleDateString()}] Email sent — "${subject}"`
-      await supabase.from('clients').update({ notes: lead.notes ? `${lead.notes}\n${note}` : note, last_contacted_at: new Date().toISOString() }).eq('id', lead.id)
+    if (res.data?.success && contact.companyId) {
+      await supabase.from('clients').update({ last_contacted_at: new Date().toISOString() }).eq('id', contact.companyId)
     }
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-        <h2 className="text-lg font-bold mb-4" style={{ color: '#0A1628' }}>Email — {lead.contact_name || lead.name}</h2>
-        {!lead.email && <div className="mb-3 p-3 rounded-xl text-sm" style={{ background: '#FEF3C7', color: '#92400E' }}>No email on file. Edit this company to add one.</div>}
+        <h2 className="text-lg font-bold mb-1" style={{ color: '#0A1628' }}>Email — {contact.name}</h2>
+        {contact.companyName && <p className="text-xs text-gray-400 mb-3">🏢 {contact.companyName}</p>}
+        {!contact.email && <div className="mb-3 p-3 rounded-xl text-sm" style={{ background: '#FEF3C7', color: '#92400E' }}>No email address on file for this contact.</div>}
         <div className="space-y-3">
           <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject"
             className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none" />
@@ -105,7 +244,7 @@ function EmailModal({ lead, onClose }) {
           {result && <p className="text-sm font-semibold">{result}</p>}
           <div className="flex gap-3">
             <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600">Close</button>
-            <button onClick={send} disabled={sending || !lead.email}
+            <button onClick={send} disabled={sending || !contact.email}
               className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50" style={{ background: '#0042AA' }}>
               {sending ? 'Sending…' : 'Send Email'}
             </button>
@@ -116,17 +255,96 @@ function EmailModal({ lead, onClose }) {
   )
 }
 
-function KanbanCard({ lead, onMove, onEdit, onEmail }) {
+// Shows contacts for a company, lets you email/SMS them
+function ContactPickerModal({ lead, onClose, onEmail }) {
+  const { user } = useAuth()
+  const [contacts, setContacts] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase
+        .from('company_contacts')
+        .select('contacts(id, first_name, last_name, email, phone, title)')
+        .eq('user_id', user.id)
+        .eq('company_id', lead.id)
+      setContacts((data || []).map(r => r.contacts).filter(Boolean))
+      setLoading(false)
+    }
+    load()
+  }, [lead.id, user])
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold" style={{ color: '#0A1628' }}>Contact {lead.name}</h2>
+            <p className="text-xs text-gray-400">Select a contact to reach out to</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+        </div>
+        {loading ? (
+          <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
+        ) : contacts.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-sm text-gray-400 mb-3">No contacts linked to this company yet.</p>
+            <p className="text-xs text-gray-400">Use "+ Add Contact" and link them to {lead.name}.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {contacts.map(c => (
+              <div key={c.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 hover:bg-gray-50">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold" style={{ color: '#0A1628' }}>
+                    {c.first_name} {c.last_name}
+                  </p>
+                  {c.title && <p className="text-xs text-gray-400">{c.title}</p>}
+                  {c.email && <p className="text-xs text-gray-500">{c.email}</p>}
+                </div>
+                <div className="flex gap-1.5 ml-3 flex-shrink-0">
+                  {c.email && (
+                    <button
+                      onClick={() => { onEmail({ name: `${c.first_name} ${c.last_name}`, email: c.email, companyId: lead.id, companyName: lead.name }); onClose() }}
+                      className="text-xs px-2.5 py-1.5 rounded-lg font-semibold"
+                      style={{ background: '#EFF6FF', color: '#0042AA' }}>✉ Email</button>
+                  )}
+                  {c.phone && (
+                    <a href={`sms:${c.phone}`}
+                      className="text-xs px-2.5 py-1.5 rounded-lg font-semibold"
+                      style={{ background: '#F0FDF4', color: '#059669' }}>💬 Text</a>
+                  )}
+                  {c.phone && (
+                    <a href={`tel:${c.phone}`}
+                      className="text-xs px-2.5 py-1.5 rounded-lg font-semibold"
+                      style={{ background: '#F5F3FF', color: '#7C3AED' }}>📞 Call</a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function KanbanCard({ lead, onMove, onEdit, onContact, isDragging, onDragStart, onDragEnd }) {
   const currentIdx = STAGES.findIndex(s => s.id === lead.crm_stage)
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-3">
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 mb-3 cursor-grab active:cursor-grabbing transition-opacity select-none"
+      style={{ opacity: isDragging ? 0.4 : 1 }}>
       <div className="flex items-start justify-between mb-2">
-        <div>
-          <p className="font-bold text-sm" style={{ color: '#0A1628' }}>{lead.name}</p>
-          {lead.contact_name && <p className="text-xs text-gray-400">{lead.contact_name}</p>}
+        <div className="min-w-0">
+          <p className="font-bold text-sm truncate" style={{ color: '#0A1628' }}>{lead.name}</p>
+          {lead.contact_name && <p className="text-xs text-gray-400 truncate">{lead.contact_name}</p>}
         </div>
         {lead.pipeline_value > 0 && (
-          <span className="text-xs font-bold" style={{ color: '#10B981' }}>${Number(lead.pipeline_value).toLocaleString()}</span>
+          <span className="text-xs font-bold ml-2 flex-shrink-0" style={{ color: '#10B981' }}>${Number(lead.pipeline_value).toLocaleString()}</span>
         )}
       </div>
       {lead.source && <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 mb-2 inline-block">{lead.source}</span>}
@@ -144,9 +362,8 @@ function KanbanCard({ lead, onMove, onEdit, onEmail }) {
           </button>
         )}
         <div className="flex-1" />
-        <button onClick={() => onEmail(lead)} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#EFF6FF', color: '#0042AA' }}>✉</button>
-        {lead.phone && <a href={`sms:${lead.phone}`} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#F0FDF4', color: '#10B981' }}>💬</a>}
-        <button onClick={() => onEdit(lead)} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#F5F3FF', color: '#6366F1' }}>✎</button>
+        <button onClick={() => onContact(lead)} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#EFF6FF', color: '#0042AA' }} title="Email/Text contact">✉</button>
+        <button onClick={() => onEdit(lead)} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#F5F3FF', color: '#6366F1' }} title="Edit">✎</button>
       </div>
     </div>
   )
@@ -305,7 +522,7 @@ function AddContactModal({ companies, onClose, onSave }) {
   )
 }
 
-function ContactsView({ companies, navigate }) {
+function ContactsView({ companies, navigate, onEmail }) {
   const { user } = useAuth()
   const [contacts, setContacts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -379,14 +596,22 @@ function ContactsView({ companies, navigate }) {
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-500">{contact.title || '—'}</td>
                     <td className="py-3 px-4 text-sm text-gray-500">
-                      {contact.email
-                        ? <a href={`mailto:${contact.email}`} className="hover:underline" style={{ color: '#0042AA' }}>{contact.email}</a>
-                        : '—'}
+                      {contact.email ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500 truncate max-w-[140px]">{contact.email}</span>
+                          <button onClick={() => onEmail({ name: `${contact.first_name} ${contact.last_name}`, email: contact.email, companyId: contact.company_id, companyName: contact.company?.name })}
+                            className="text-xs px-2 py-0.5 rounded-lg flex-shrink-0" style={{ background: '#EFF6FF', color: '#0042AA' }}>✉</button>
+                        </div>
+                      ) : '—'}
                     </td>
                     <td className="py-3 px-4 text-sm text-gray-500">
-                      {contact.phone
-                        ? <a href={`tel:${contact.phone}`} className="hover:underline">{contact.phone}</a>
-                        : '—'}
+                      {contact.phone ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500">{contact.phone}</span>
+                          <a href={`sms:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg flex-shrink-0" style={{ background: '#F0FDF4', color: '#059669' }}>💬</a>
+                          <a href={`tel:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg flex-shrink-0" style={{ background: '#F5F3FF', color: '#7C3AED' }}>📞</a>
+                        </div>
+                      ) : '—'}
                     </td>
                     <td className="py-3 px-4">
                       {contact.company ? (
@@ -430,9 +655,13 @@ export default function CRM() {
   const [sortBy, setSortBy] = useState('created_at')
   const [showModal, setShowModal] = useState(false)
   const [editLead, setEditLead] = useState(null)
-  const [emailLead, setEmailLead] = useState(null)
+  const [contactPickerLead, setContactPickerLead] = useState(null)
+  const [emailContact, setEmailContact] = useState(null)
   const [showCSV, setShowCSV] = useState(false)
   const [showAddContact, setShowAddContact] = useState(false)
+  // drag state
+  const [dragId, setDragId] = useState(null)
+  const [dragOverStage, setDragOverStage] = useState(null)
 
   const load = async () => {
     const { data } = await supabase.from('clients').select('*').not('crm_stage', 'is', null).order('created_at', { ascending: false })
@@ -525,14 +754,27 @@ export default function CRM() {
       {loading ? (
         <div className="text-center py-20 text-gray-400">Loading pipeline…</div>
       ) : view === 'contacts' ? (
-        <ContactsView companies={companies} navigate={navigate} />
+        <ContactsView companies={companies} navigate={navigate} onEmail={(c) => setEmailContact(c)} />
       ) : view === 'kanban' ? (
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
           {STAGES.map(stage => {
             const cards = filtered.filter(c => c.crm_stage === stage.id)
             const stageTotal = cards.reduce((s, c) => s + Number(c.pipeline_value || 0), 0)
+            const isDropTarget = dragOverStage === stage.id
             return (
-              <div key={stage.id}>
+              <div key={stage.id}
+                onDragOver={e => { e.preventDefault(); setDragOverStage(stage.id) }}
+                onDragLeave={() => setDragOverStage(null)}
+                onDrop={e => {
+                  e.preventDefault()
+                  if (dragId) {
+                    const dragged = companies.find(c => c.id === dragId)
+                    if (dragged && dragged.crm_stage !== stage.id) moveStage(dragged, stage.id)
+                  }
+                  setDragId(null); setDragOverStage(null)
+                }}
+                className="rounded-xl transition-colors"
+                style={isDropTarget ? { background: stage.bg, outline: `2px dashed ${stage.color}` } : {}}>
                 <div className="flex items-center justify-between mb-3 px-1">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full" style={{ background: stage.color }} />
@@ -541,14 +783,20 @@ export default function CRM() {
                   </div>
                   {stageTotal > 0 && <span className="text-xs font-semibold text-gray-400">${stageTotal.toLocaleString()}</span>}
                 </div>
-                <div className="min-h-16">
+                <div className="min-h-16 p-1">
                   {cards.length === 0 ? (
-                    <div className="rounded-xl border-2 border-dashed border-gray-200 p-4 text-center text-xs text-gray-300">Empty</div>
+                    <div className="rounded-xl border-2 border-dashed p-4 text-center text-xs transition-colors"
+                      style={{ borderColor: isDropTarget ? stage.color : '#E5E7EB', color: isDropTarget ? stage.color : '#D1D5DB' }}>
+                      {isDropTarget ? `Drop here` : 'Empty'}
+                    </div>
                   ) : cards.map(lead => (
                     <KanbanCard key={lead.id} lead={lead}
+                      isDragging={dragId === lead.id}
+                      onDragStart={() => setDragId(lead.id)}
+                      onDragEnd={() => { setDragId(null); setDragOverStage(null) }}
                       onMove={moveStage}
                       onEdit={(l) => { setEditLead(l); setShowModal(true) }}
-                      onEmail={setEmailLead}
+                      onContact={setContactPickerLead}
                     />
                   ))}
                 </div>
@@ -594,8 +842,7 @@ export default function CRM() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex gap-1.5 flex-wrap">
-                          <button onClick={() => setEmailLead(lead)} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#EFF6FF', color: '#0042AA' }}>✉</button>
-                          {lead.phone && <a href={`sms:${lead.phone}`} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#F0FDF4', color: '#10B981' }}>💬</a>}
+                          <button onClick={() => setContactPickerLead(lead)} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#EFF6FF', color: '#0042AA' }} title="Email/Text contact">✉</button>
                           <button onClick={() => { setEditLead(lead); setShowModal(true) }} className="text-xs px-2 py-1 rounded-lg" style={{ background: '#F5F3FF', color: '#6366F1' }}>✎</button>
                           <select value={lead.crm_stage} onChange={e => moveStage(lead, e.target.value)}
                             className="text-xs px-2 py-1 rounded-lg border border-gray-200 focus:outline-none">
@@ -613,7 +860,14 @@ export default function CRM() {
       )}
 
       {showModal && <LeadModal lead={editLead} onClose={() => { setShowModal(false); setEditLead(null) }} onSave={load} />}
-      {emailLead && <EmailModal lead={emailLead} onClose={() => { setEmailLead(null); load() }} />}
+      {contactPickerLead && (
+        <ContactPickerModal
+          lead={contactPickerLead}
+          onClose={() => setContactPickerLead(null)}
+          onEmail={(contact) => { setContactPickerLead(null); setEmailContact(contact) }}
+        />
+      )}
+      {emailContact && <EmailModal contact={emailContact} onClose={() => { setEmailContact(null); load() }} />}
       {showCSV && <CSVImportModal onClose={() => setShowCSV(false)} onSave={load} />}
       {showAddContact && <AddContactModal companies={companies} onClose={() => setShowAddContact(false)} onSave={load} />}
     </div>
