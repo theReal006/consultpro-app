@@ -7,31 +7,41 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  const saveGoogleToken = async (session) => {
+    if (!session?.user?.id) return
+    // provider_token is only available immediately after OAuth redirect.
+    // Supabase drops it from the session on any subsequent load, so we must
+    // persist it to the DB the moment we first see it.
+    const token = session.provider_token
+    if (!token) return
+    const expiresAt = session.expires_at
+      ? new Date(session.expires_at * 1000).toISOString()
+      : null
+    await supabase.from('user_google_tokens').upsert(
+      {
+        user_id: session.user.id,
+        access_token: token,
+        expires_at: expiresAt,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    )
+  }
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // getSession() on mount will have provider_token if this is the page load
+    // immediately after the OAuth redirect (before Supabase drops it).
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null)
       setLoading(false)
+      await saveGoogleToken(session)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       setUser(session?.user ?? null)
-
-      // When the user signs in with Google, persist the provider_token so it
-      // survives page refreshes (Supabase drops it from the session after the first load).
-      if (event === 'SIGNED_IN' && session?.provider_token && session?.user?.id) {
-        const expiresAt = session.expires_at
-          ? new Date(session.expires_at * 1000).toISOString()
-          : null
-
-        await supabase.from('user_google_tokens').upsert(
-          {
-            user_id: session.user.id,
-            access_token: session.provider_token,
-            expires_at: expiresAt,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id' }
-        )
+      // Catch it here too in case the event fires before getSession resolves
+      if (event === 'SIGNED_IN') {
+        await saveGoogleToken(session)
       }
     })
 
