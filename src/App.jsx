@@ -12,6 +12,7 @@ import ClientDetail from './pages/ClientDetail'
 import Tasks from './pages/Tasks'
 import Calendar from './pages/Calendar'
 import ContactDetail from './pages/ContactDetail'
+import AuthCallback from './pages/AuthCallback'
 
 function ProtectedRoutes() {
   const { user, loading } = useAuth()
@@ -63,6 +64,7 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<PublicRoute />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/*" element={<ProtectedRoutes />} />
         </Routes>
       </AuthProvider>

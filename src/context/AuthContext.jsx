@@ -54,7 +54,10 @@ export function AuthProvider({ children }) {
     supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        scopes: 'email profile https://www.googleapis.com/auth/calendar.readonly',
+        // /auth/callback captures the provider_token immediately after redirect,
+        // before Supabase drops it from the session on any subsequent load.
+        redirectTo: `${window.location.origin}/auth/callback`,
+        scopes: 'https://www.googleapis.com/auth/calendar.readonly',
         queryParams: { access_type: 'offline', prompt: 'consent' },
       },
     })
