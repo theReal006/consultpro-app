@@ -118,13 +118,23 @@ export default function Tasks() {
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-6">
           <h3 className="font-bold text-sm mb-4" style={{ color: '#0A1628' }}>New Task</h3>
           <form onSubmit={save} className="space-y-3">
+            {/* Linked client — first and prominent */}
+            <div className="p-3 rounded-xl border-2 border-blue-100 bg-blue-50">
+              <label className="text-xs font-bold mb-1.5 block" style={{ color: '#0042AA' }}>🏢 Linked Client</label>
+              <select value={form.company_id} onChange={e => setForm(f => ({ ...f, company_id: e.target.value }))}
+                className="w-full px-4 py-2.5 rounded-xl border border-blue-200 text-sm bg-white focus:outline-none focus:border-blue-400">
+                <option value="">— No client linked —</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+
             <input required placeholder="Task title *" value={form.title}
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm" />
             <textarea placeholder="Description / details (optional)" rows={2} value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm resize-none" />
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">Due date</label>
                 <input type="date" value={form.due_date}
@@ -136,14 +146,6 @@ export default function Tasks() {
                 <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
                   className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white">
                   {PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">Linked client</label>
-                <select value={form.company_id} onChange={e => setForm(f => ({ ...f, company_id: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm bg-white">
-                  <option value="">— None —</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             </div>

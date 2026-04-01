@@ -6,6 +6,7 @@ import { jsPDF } from 'jspdf'
 import ActivityFeed from '../components/ActivityFeed'
 import TaskPanel from '../components/TaskPanel'
 import EmailComposeModal from '../components/EmailComposeModal'
+import SmsComposeModal from '../components/SmsComposeModal'
 import ProjectsTab from '../components/tabs/ProjectsTab'
 import ProposalsTab from '../components/tabs/ProposalsTab'
 import BillingTab from '../components/tabs/BillingTab'
@@ -401,6 +402,7 @@ export default function ClientDetail() {
   const [savingNotes, setSavingNotes] = useState(false)
 
   const [emailTarget, setEmailTarget] = useState(null) // { email, name }
+  const [smsTarget, setSmsTarget] = useState(null)    // { phone, name }
 
   // Contact form state
   const [showContactForm, setShowContactForm] = useState(false)
@@ -844,10 +846,12 @@ export default function ClientDetail() {
                         </p>
                       )}
                       {c.phone && (
-                        <p className="text-gray-500">
+                        <p className="text-gray-500 flex items-center gap-2 flex-wrap">
                           <a href={`tel:${c.phone}`}>📞 {c.phone}</a>
-                          {' '}
-                          <a href={`sms:${c.phone}`} className="text-xs ml-1" style={{ color: '#10B981' }}>💬 Text</a>
+                          <button
+                            onClick={() => setSmsTarget({ phone: c.phone, name: `${c.first_name || ''} ${c.last_name || ''}`.trim() })}
+                            className="text-xs px-2 py-0.5 rounded-lg font-semibold hover:opacity-80"
+                            style={{ background: '#F0FDF4', color: '#059669' }}>💬 Text</button>
                         </p>
                       )}
                     </div>
@@ -1020,6 +1024,14 @@ export default function ClientDetail() {
           toEmail={emailTarget.email}
           toName={emailTarget.name}
           onClose={() => setEmailTarget(null)}
+        />
+      )}
+
+      {smsTarget && (
+        <SmsComposeModal
+          toPhone={smsTarget.phone}
+          toName={smsTarget.name}
+          onClose={() => setSmsTarget(null)}
         />
       )}
     </div>

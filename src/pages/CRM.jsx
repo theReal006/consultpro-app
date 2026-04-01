@@ -289,6 +289,58 @@ function LeadModal({ lead, onClose, onSave }) {
 }
 
 // contact = { name, email, companyId, companyName }
+function SmsModal({ contact, onClose }) {
+  const [to, setTo] = useState(contact.phone || '')
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const send = async () => {
+    if (!to.trim() || !message.trim()) { setResult('❌ Phone and message are required'); return }
+    setSending(true)
+    const res = await supabase.functions.invoke('send-sms', {
+      body: { to: to.trim(), message: message.trim() },
+    })
+    if (res.data?.success) {
+      setResult('✅ Message sent!')
+      if (contact.companyId) {
+        await supabase.from('clients').update({ last_contacted_at: new Date().toISOString() }).eq('id', contact.companyId)
+      }
+    } else {
+      setResult('❌ ' + (res.data?.error || 'Failed to send. Check Twilio credentials.'))
+    }
+    setSending(false)
+  }
+
+  const charCount = message.length
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+        <h2 className="text-lg font-bold mb-1" style={{ color: '#0A1628' }}>💬 Text — {contact.name}</h2>
+        {contact.companyName && <p className="text-xs text-gray-400 mb-3">🏢 {contact.companyName}</p>}
+        {!contact.phone && <div className="mb-3 p-3 rounded-xl text-sm" style={{ background: '#FEF3C7', color: '#92400E' }}>No phone number on file for this contact.</div>}
+        <div className="space-y-3">
+          <input value={to} onChange={e => setTo(e.target.value)} placeholder="Phone number"
+            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none" />
+          <div className="relative">
+            <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Write your message…" rows={6}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm resize-none focus:outline-none" />
+            <span className="absolute bottom-2 right-3 text-xs text-gray-400">{charCount} chars</span>
+          </div>
+          {result && <p className="text-sm font-semibold">{result}</p>}
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600">Close</button>
+            <button onClick={send} disabled={sending || !contact.phone}
+              className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50" style={{ background: '#059669' }}>
+              {sending ? 'Sending…' : 'Send Text'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EmailModal({ contact, onClose }) {
   const [subject, setSubject] = useState(`Following up — ${contact.companyName || contact.name}`)
   const [body, setBody] = useState('')
@@ -341,7 +393,7 @@ function EmailModal({ contact, onClose }) {
 }
 
 // Shows contacts for a company, lets you email/SMS them
-function ContactPickerModal({ lead, onClose, onEmail }) {
+function ContactPickerModal({ lead, onClose, onEmail, onSms }) {
   const { user } = useAuth()
   const [contacts, setContacts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -395,9 +447,10 @@ function ContactPickerModal({ lead, onClose, onEmail }) {
                       style={{ background: '#EFF6FF', color: '#0042AA' }}>✉ Email</button>
                   )}
                   {c.phone && (
-                    <a href={`sms:${c.phone}`}
+                    <button
+                      onClick={() => { onSms && onSms({ name: `${c.first_name} ${c.last_name}`, phone: c.phone, companyId: lead.id, companyName: lead.name }); onClose() }}
                       className="text-xs px-2.5 py-1.5 rounded-lg font-semibold"
-                      style={{ background: '#F0FDF4', color: '#059669' }}>💬 Text</a>
+                      style={{ background: '#F0FDF4', color: '#059669' }}>💬 Text</button>
                   )}
                   {c.phone && (
                     <a href={`tel:${c.phone}`}
@@ -607,7 +660,7 @@ function AddContactModal({ companies, onClose, onSave }) {
   )
 }
 
-function ContactsView({ companies, navigate, onEmail }) {
+function ContactsView({ companies, navigate, onEmail, onSms }) {
   const { user } = useAuth()
   const [contacts, setContacts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -694,7 +747,7 @@ function ContactsView({ companies, navigate, onEmail }) {
                       {contact.phone ? (
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-gray-500">{contact.phone}</span>
-                          <a href={`sms:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg flex-shrink-0" style={{ background: '#F0FDF4', color: '#059669' }}>💬</a>
+                          <button onClick={() => onSms && onSms({ name: `${contact.first_name} ${contact.last_name}`, phone: contact.phone, companyId: contact.company_id, companyName: contact.company?.name })} className="text-xs px-2 py-0.5 rounded-lg flex-shrink-0" style={{ background: '#F0FDF4', color: '#059669' }}>💬</button>
                           <a href={`tel:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg flex-shrink-0" style={{ background: '#F5F3FF', color: '#7C3AED' }}>📞</a>
                         </div>
                       ) : '—'}
@@ -743,6 +796,7 @@ export default function CRM() {
   const [editLead, setEditLead] = useState(null)
   const [contactPickerLead, setContactPickerLead] = useState(null)
   const [emailContact, setEmailContact] = useState(null)
+  const [smsContact, setSmsContact] = useState(null)
   const [showCSV, setShowCSV] = useState(false)
   const [showAddContact, setShowAddContact] = useState(false)
   // drag state
@@ -840,7 +894,7 @@ export default function CRM() {
       {loading ? (
         <div className="text-center py-20 text-gray-400">Loading pipeline…</div>
       ) : view === 'contacts' ? (
-        <ContactsView companies={companies} navigate={navigate} onEmail={(c) => setEmailContact(c)} />
+        <ContactsView companies={companies} navigate={navigate} onEmail={(c) => setEmailContact(c)} onSms={(c) => setSmsContact(c)} />
       ) : view === 'kanban' ? (
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(5, minmax(0, 1fr))' }}>
           {STAGES.map(stage => {
@@ -951,9 +1005,11 @@ export default function CRM() {
           lead={contactPickerLead}
           onClose={() => setContactPickerLead(null)}
           onEmail={(contact) => { setContactPickerLead(null); setEmailContact(contact) }}
+          onSms={(contact) => { setContactPickerLead(null); setSmsContact(contact) }}
         />
       )}
       {emailContact && <EmailModal contact={emailContact} onClose={() => { setEmailContact(null); load() }} />}
+      {smsContact && <SmsModal contact={smsContact} onClose={() => { setSmsContact(null); load() }} />}
       {showCSV && <CSVImportModal onClose={() => setShowCSV(false)} onSave={load} />}
       {showAddContact && <AddContactModal companies={companies} onClose={() => setShowAddContact(false)} onSave={load} />}
     </div>

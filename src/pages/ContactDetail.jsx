@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import EmailComposeModal from '../components/EmailComposeModal'
+import SmsComposeModal from '../components/SmsComposeModal'
 
 const TASK_EMPTY = { title: '', description: '', due_date: '', assigned_to_type: 'self', assigned_to_label: '' }
 
@@ -210,6 +211,7 @@ export default function ContactDetail() {
   const [err, setErr] = useState(null)
   const [showMeetingModal, setShowMeetingModal] = useState(false)
   const [showEmailModal, setShowEmailModal] = useState(false)
+  const [showSmsModal, setShowSmsModal] = useState(false)
 
   const load = async () => {
     const [contactRes, companiesRes, activityRes] = await Promise.all([
@@ -345,7 +347,7 @@ export default function ContactDetail() {
             ) : contact.phone ? (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-gray-700">{contact.phone}</span>
-                <a href={`sms:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0" style={{ background: '#F0FDF4', color: '#059669' }}>💬 Text</a>
+                <button onClick={() => setShowSmsModal(true)} className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0 hover:opacity-80" style={{ background: '#F0FDF4', color: '#059669' }}>💬 Text</button>
                 <a href={`tel:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0" style={{ background: '#F5F3FF', color: '#7C3AED' }}>📞 Call</a>
                 <button onClick={() => setShowMeetingModal(true)}
                   className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0 hover:opacity-80"
@@ -445,6 +447,14 @@ export default function ContactDetail() {
           toEmail={contact.email}
           toName={`${contact.first_name || ''} ${contact.last_name || ''}`.trim()}
           onClose={() => setShowEmailModal(false)}
+        />
+      )}
+
+      {showSmsModal && contact.phone && (
+        <SmsComposeModal
+          toPhone={contact.phone}
+          toName={`${contact.first_name || ''} ${contact.last_name || ''}`.trim()}
+          onClose={() => setShowSmsModal(false)}
         />
       )}
     </div>
