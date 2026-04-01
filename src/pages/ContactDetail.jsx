@@ -3,6 +3,197 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 
+const TASK_EMPTY = { title: '', description: '', due_date: '', assigned_to_type: 'self', assigned_to_label: '' }
+
+function MeetingNotesModal({ contact, companyId, companyName, user, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    title: '',
+    date: new Date().toISOString().split('T')[0],
+    attendees: '',
+    notes: '',
+    outcome: '',
+  })
+  const [tasks, setTasks] = useState([])
+  const [newTask, setNewTask] = useState(TASK_EMPTY)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const addTask = () => {
+    if (!newTask.title.trim()) return
+    setTasks(prev => [...prev, { ...newTask, _id: Date.now() }])
+    setNewTask(TASK_EMPTY)
+  }
+
+  const removeTask = (_id) => setTasks(prev => prev.filter(t => t._id !== _id))
+
+  const save = async () => {
+    if (!form.title.trim()) { setErr('Meeting title is required.'); return }
+    setSaving(true); setErr(null)
+
+    // Save meeting activity
+    const { error: actErr } = await supabase.from('activity_logs').insert({
+      user_id: user.id,
+      contact_id: contact.id,
+      activity_type: 'meeting',
+      summary: form.title,
+      notes: form.notes || null,
+      activity_date: form.date,
+      attendees: form.attendees || null,
+      outcome: form.outcome || null,
+    })
+    if (actErr) { setErr(actErr.message); setSaving(false); return }
+
+    // Save tasks created from meeting
+    for (const task of tasks) {
+      const assignedLabel =
+        task.assigned_to_type === 'self' ? 'Me' :
+        task.assigned_to_type === 'client' ? (companyName || 'Client') :
+        task.assigned_to_label || 'Other'
+      const payload = {
+        user_id: user.id,
+        contact_id: contact.id,
+        title: task.title,
+        description: task.description || null,
+        due_date: task.due_date || null,
+        priority: 'normal',
+        status: 'open',
+        assigned_to: task.assigned_to_type === 'self' ? user.id : null,
+        assigned_to_label: assignedLabel,
+        assigned_to_type: task.assigned_to_type,
+      }
+      if (companyId) payload.company_id = companyId
+      await supabase.from('tasks').insert(payload)
+    }
+
+    setSaving(false)
+    onSaved()
+    onClose()
+  }
+
+  const cls = 'w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-blue-300'
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-lg font-bold" style={{ color: '#0A1628' }}>📅 Meeting Notes</h2>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+          </div>
+
+          {err && <p className="text-xs text-red-500 mb-3 px-3 py-2 rounded-lg bg-red-50">{err}</p>}
+
+          <div className="space-y-3 mb-5">
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Meeting Title *</label>
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                className={cls} placeholder="e.g. Kick-off call, Quarterly review…" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Date</label>
+                <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                  className={cls} />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Attendees</label>
+                <input value={form.attendees} onChange={e => setForm(f => ({ ...f, attendees: e.target.value }))}
+                  className={cls} placeholder="Names / emails…" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Notes / Key Discussion Points</label>
+              <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                className={`${cls} resize-none`} rows={4} placeholder="What was discussed…" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Outcome / Next Steps</label>
+              <textarea value={form.outcome} onChange={e => setForm(f => ({ ...f, outcome: e.target.value }))}
+                className={`${cls} resize-none`} rows={2} placeholder="Decisions made, action items…" />
+            </div>
+          </div>
+
+          {/* Tasks from meeting */}
+          <div className="border-t border-gray-100 pt-5">
+            <h3 className="text-sm font-bold mb-3" style={{ color: '#0A1628' }}>✅ Tasks from this Meeting</h3>
+
+            {tasks.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {tasks.map(task => (
+                  <div key={task._id} className="flex items-start gap-3 bg-blue-50 rounded-xl px-3 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold" style={{ color: '#0A1628' }}>{task.title}</p>
+                      {task.description && <p className="text-xs text-gray-500">{task.description}</p>}
+                      <div className="flex gap-3 mt-0.5 text-xs text-gray-400">
+                        {task.due_date && <span>📅 {new Date(task.due_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
+                        <span>👤 {task.assigned_to_type === 'self' ? 'Me' : task.assigned_to_type === 'client' ? (companyName || 'Client') : task.assigned_to_label || 'Other'}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => removeTask(task._id)} className="text-gray-300 hover:text-red-400 text-lg leading-none flex-shrink-0">×</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add task inline */}
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <input value={newTask.title} onChange={e => setNewTask(f => ({ ...f, title: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTask() } }}
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-blue-300"
+                placeholder="Task name…" />
+              <textarea value={newTask.description} onChange={e => setNewTask(f => ({ ...f, description: e.target.value }))}
+                rows={2} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-blue-300 resize-none"
+                placeholder="Description (optional)…" />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Due date</label>
+                  <input type="date" value={newTask.due_date} onChange={e => setNewTask(f => ({ ...f, due_date: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-blue-300" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Assign to</label>
+                  <div className="flex gap-1.5">
+                    {[['self','Me'],['client','Client'],['other','Other']].map(([val,lbl]) => (
+                      <button key={val} type="button"
+                        onClick={() => setNewTask(f => ({ ...f, assigned_to_type: val, assigned_to_label: '' }))}
+                        className="flex-1 px-2 py-1.5 rounded-lg text-xs font-semibold border transition-all"
+                        style={newTask.assigned_to_type === val
+                          ? { background: '#0042AA', color: 'white', borderColor: '#0042AA' }
+                          : { background: 'white', color: '#6B7280', borderColor: '#E5E7EB' }}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {newTask.assigned_to_type === 'other' && (
+                <input value={newTask.assigned_to_label} onChange={e => setNewTask(f => ({ ...f, assigned_to_label: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-blue-300"
+                  placeholder="Enter name…" />
+              )}
+              <button onClick={addTask} disabled={!newTask.title.trim()}
+                className="w-full py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-40"
+                style={{ background: '#EFF6FF', color: '#0042AA' }}>
+                + Add Task
+              </button>
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-5 pt-4 border-t border-gray-100">
+            <button onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600">Cancel</button>
+            <button onClick={save} disabled={saving || !form.title.trim()}
+              className="flex-1 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
+              style={{ background: '#0042AA' }}>
+              {saving ? 'Saving…' : `Save Meeting${tasks.length > 0 ? ` + ${tasks.length} Task${tasks.length !== 1 ? 's' : ''}` : ''}`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ContactDetail() {
   const { id } = useParams()
   const { user } = useAuth()
@@ -16,6 +207,7 @@ export default function ContactDetail() {
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
+  const [showMeetingModal, setShowMeetingModal] = useState(false)
 
   const load = async () => {
     const [contactRes, companiesRes, activityRes] = await Promise.all([
@@ -59,6 +251,9 @@ export default function ContactDetail() {
 
   const ACTIVITY_ICONS = { call: '📞', email: '✉️', meeting: '📅', note: '📝', task: '✅' }
   const cls = 'w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-blue-300'
+
+  const primaryCompanyId = companies[0]?.id || null
+  const primaryCompanyName = companies[0]?.name || null
 
   if (loading) return <div className="text-center py-20 text-gray-400">Loading…</div>
   if (!contact) return null
@@ -126,10 +321,15 @@ export default function ContactDetail() {
               <input type="email" value={form.email || ''} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
                 className={cls} placeholder="Email" />
             ) : contact.email ? (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-700">{contact.email}</span>
+              <div className="flex items-center gap-2 flex-wrap">
                 <a href={`mailto:${contact.email}`}
-                  className="text-xs px-2 py-0.5 rounded-lg font-semibold" style={{ background: '#EFF6FF', color: '#0042AA' }}>✉ Email</a>
+                  className="text-sm font-medium hover:underline"
+                  style={{ color: '#0042AA' }}>
+                  {contact.email}
+                </a>
+                <a href={`mailto:${contact.email}`}
+                  className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0"
+                  style={{ background: '#EFF6FF', color: '#0042AA' }}>✉ Email</a>
               </div>
             ) : <span className="text-sm text-gray-400">—</span>}
           </div>
@@ -139,12 +339,22 @@ export default function ContactDetail() {
               <input value={form.phone || ''} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
                 className={cls} placeholder="Phone" />
             ) : contact.phone ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-gray-700">{contact.phone}</span>
-                <a href={`sms:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg font-semibold" style={{ background: '#F0FDF4', color: '#059669' }}>💬 Text</a>
-                <a href={`tel:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg font-semibold" style={{ background: '#F5F3FF', color: '#7C3AED' }}>📞 Call</a>
+                <a href={`sms:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0" style={{ background: '#F0FDF4', color: '#059669' }}>💬 Text</a>
+                <a href={`tel:${contact.phone}`} className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0" style={{ background: '#F5F3FF', color: '#7C3AED' }}>📞 Call</a>
+                <button onClick={() => setShowMeetingModal(true)}
+                  className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0 hover:opacity-80"
+                  style={{ background: '#FFF7ED', color: '#D97706' }}>📅 Meeting</button>
               </div>
-            ) : <span className="text-sm text-gray-400">—</span>}
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-400">—</span>
+                <button onClick={() => setShowMeetingModal(true)}
+                  className="text-xs px-2 py-0.5 rounded-lg font-semibold hover:opacity-80"
+                  style={{ background: '#FFF7ED', color: '#D97706' }}>📅 Meeting</button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -186,7 +396,14 @@ export default function ContactDetail() {
 
       {/* Activity feed */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-        <h2 className="text-sm font-bold mb-3" style={{ color: '#0A1628' }}>Activity</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold" style={{ color: '#0A1628' }}>Activity</h2>
+          <button onClick={() => setShowMeetingModal(true)}
+            className="text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-80"
+            style={{ background: '#FFF7ED', color: '#D97706' }}>
+            + Log Meeting
+          </button>
+        </div>
         {activities.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-6">No activity logged for this contact yet.</p>
         ) : (
@@ -197,6 +414,7 @@ export default function ContactDetail() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold" style={{ color: '#0A1628' }}>{a.summary || a.activity_type}</p>
                   {a.notes && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{a.notes}</p>}
+                  {a.outcome && <p className="text-xs text-gray-400 mt-0.5 italic">→ {a.outcome}</p>}
                   <p className="text-xs text-gray-400 mt-0.5">
                     {a.activity_date ? new Date(a.activity_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
                   </p>
@@ -206,6 +424,17 @@ export default function ContactDetail() {
           </div>
         )}
       </div>
+
+      {showMeetingModal && (
+        <MeetingNotesModal
+          contact={contact}
+          companyId={primaryCompanyId}
+          companyName={primaryCompanyName}
+          user={user}
+          onClose={() => setShowMeetingModal(false)}
+          onSaved={load}
+        />
+      )}
     </div>
   )
 }

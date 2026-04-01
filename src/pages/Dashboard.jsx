@@ -1,18 +1,27 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
-function StatCard({ label, value, sub, color }) {
+function StatCard({ label, value, sub, color, onClick }) {
   return (
-    <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+    <div
+      onClick={onClick}
+      className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 transition-all"
+      style={{ cursor: onClick ? 'pointer' : 'default' }}
+      onMouseEnter={e => { if (onClick) { e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,66,170,0.12)'; e.currentTarget.style.borderColor = '#BFDBFE' } }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.borderColor = '#F3F4F6' }}
+    >
       <p className="text-sm text-gray-500 font-semibold mb-1">{label}</p>
       <p className="text-3xl font-bold mb-1" style={{ color: color || '#0A1628' }}>{value}</p>
       {sub && <p className="text-xs text-gray-400">{sub}</p>}
+      {onClick && <p className="text-xs font-semibold mt-2" style={{ color: '#0042AA' }}>View →</p>}
     </div>
   )
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const [stats, setStats] = useState({ openAR: 0, openInvoices: 0, overdue120: 0, clients: 0 })
   const [chartData, setChartData] = useState([])
   const [loading, setLoading] = useState(true)
@@ -42,7 +51,6 @@ export default function Dashboard() {
         })
         .reduce((s, i) => s + Number(i.amount), 0)
 
-      // Rolling 12 months chart
       const months = []
       for (let i = 11; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
@@ -78,23 +86,30 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Active Clients" value={stats.clients} />
+        <StatCard
+          label="Active Clients"
+          value={stats.clients}
+          onClick={() => navigate('/clients')}
+        />
         <StatCard
           label="Open Billing"
           value={`$${Number(stats.openAR).toLocaleString()}`}
           sub={`${stats.openInvoices} open invoices`}
           color="#0042AA"
+          onClick={() => navigate('/billing')}
         />
         <StatCard
           label="Open Invoices"
           value={stats.openInvoices}
           color="#F59E0B"
+          onClick={() => navigate('/billing')}
         />
         <StatCard
           label="120D+ Overdue"
           value={`$${Number(stats.overdue120).toLocaleString()}`}
           sub="Requires attention"
           color="#EF4444"
+          onClick={() => navigate('/billing')}
         />
       </div>
 

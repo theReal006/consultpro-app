@@ -285,8 +285,11 @@ export default function Clients() {
             const dormant = days >= 60 && client.status === 'active'
             return (
               <div key={client.id}
-                className="bg-white rounded-2xl p-5 shadow-sm border hover:shadow-md transition-shadow"
-                style={{ borderColor: dormant ? '#FCA5A5' : '#F3F4F6' }}>
+                onClick={() => navigate(`/clients/${client.id}`)}
+                className="bg-white rounded-2xl p-5 shadow-sm border hover:shadow-md transition-all cursor-pointer"
+                style={{ borderColor: dormant ? '#FCA5A5' : '#F3F4F6' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = dormant ? '#FCA5A5' : '#BFDBFE' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = dormant ? '#FCA5A5' : '#F3F4F6' }}>
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <h3 className="font-bold text-base" style={{ color: '#0A1628' }}>{client.name}</h3>
@@ -296,7 +299,15 @@ export default function Clients() {
                     style={{ background: sc.bg, color: sc.text }}>{client.status}</span>
                 </div>
                 <div className="space-y-1 text-sm text-gray-500 mb-3">
-                  {client.email && <p>✉️ {client.email}</p>}
+                  {client.email && (
+                    <p>✉️ <a
+                      href={`mailto:${client.email}`}
+                      onClick={e => e.stopPropagation()}
+                      className="hover:underline"
+                      style={{ color: '#0042AA' }}>
+                      {client.email}
+                    </a></p>
+                  )}
                   {client.phone && <p>📞 {client.phone}</p>}
                   {client.industry && <p>🏢 {client.industry}</p>}
                 </div>
@@ -318,13 +329,13 @@ export default function Clients() {
                   </span>
                   <div className="flex gap-1.5">
                     {!client.crm_stage && (
-                      <button onClick={() => setCrmTarget(client)}
+                      <button
+                        onClick={e => { e.stopPropagation(); setCrmTarget(client) }}
                         className="text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:opacity-80"
                         style={{ background: '#EEF2FF', color: '#6366F1' }}>+ CRM</button>
                     )}
-                    <button onClick={() => navigate(`/clients/${client.id}`)}
-                      className="text-xs font-semibold px-2.5 py-1.5 rounded-lg hover:opacity-80"
-                      style={{ background: '#EFF6FF', color: '#0042AA' }}>View →</button>
+                    <span className="text-xs font-semibold px-2.5 py-1.5 rounded-lg"
+                      style={{ background: '#EFF6FF', color: '#0042AA' }}>View →</span>
                   </div>
                 </div>
               </div>
