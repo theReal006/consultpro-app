@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import EmailComposeModal from '../components/EmailComposeModal'
 
 const STATUS_COLORS = {
   active:   { bg: '#ECFDF5', text: '#10B981' },
@@ -174,6 +175,7 @@ export default function Clients() {
   const [activeFilters, setActiveFilters] = useState(new Set(['active']))
   const [showModal, setShowModal] = useState(false)
   const [crmTarget, setCrmTarget] = useState(null)
+  const [emailTarget, setEmailTarget] = useState(null) // { email, name }
   const [loading, setLoading] = useState(true)
 
   const load = async () => {
@@ -300,13 +302,12 @@ export default function Clients() {
                 </div>
                 <div className="space-y-1 text-sm text-gray-500 mb-3">
                   {client.email && (
-                    <p>✉️ <a
-                      href={`mailto:${client.email}`}
-                      onClick={e => e.stopPropagation()}
-                      className="hover:underline"
+                    <p>✉️ <button
+                      onClick={e => { e.stopPropagation(); setEmailTarget({ email: client.email, name: client.contact_name || client.name }) }}
+                      className="hover:underline text-left"
                       style={{ color: '#0042AA' }}>
                       {client.email}
-                    </a></p>
+                    </button></p>
                   )}
                   {client.phone && <p>📞 {client.phone}</p>}
                   {client.industry && <p>🏢 {client.industry}</p>}
@@ -346,6 +347,13 @@ export default function Clients() {
 
       {showModal && <AddClientModal onClose={() => setShowModal(false)} onSave={load} />}
       {crmTarget && <AddToCRMModal client={crmTarget} onClose={() => setCrmTarget(null)} onSave={load} />}
+      {emailTarget && (
+        <EmailComposeModal
+          toEmail={emailTarget.email}
+          toName={emailTarget.name}
+          onClose={() => setEmailTarget(null)}
+        />
+      )}
     </div>
   )
 }

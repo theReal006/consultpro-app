@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import EmailComposeModal from '../components/EmailComposeModal'
 
 const TASK_EMPTY = { title: '', description: '', due_date: '', assigned_to_type: 'self', assigned_to_label: '' }
 
@@ -208,6 +209,7 @@ export default function ContactDetail() {
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState(null)
   const [showMeetingModal, setShowMeetingModal] = useState(false)
+  const [showEmailModal, setShowEmailModal] = useState(false)
 
   const load = async () => {
     const [contactRes, companiesRes, activityRes] = await Promise.all([
@@ -322,14 +324,16 @@ export default function ContactDetail() {
                 className={cls} placeholder="Email" />
             ) : contact.email ? (
               <div className="flex items-center gap-2 flex-wrap">
-                <a href={`mailto:${contact.email}`}
-                  className="text-sm font-medium hover:underline"
+                <button
+                  onClick={() => setShowEmailModal(true)}
+                  className="text-sm font-medium hover:underline text-left"
                   style={{ color: '#0042AA' }}>
                   {contact.email}
-                </a>
-                <a href={`mailto:${contact.email}`}
-                  className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0"
-                  style={{ background: '#EFF6FF', color: '#0042AA' }}>✉ Email</a>
+                </button>
+                <button
+                  onClick={() => setShowEmailModal(true)}
+                  className="text-xs px-2 py-0.5 rounded-lg font-semibold flex-shrink-0 hover:opacity-80"
+                  style={{ background: '#EFF6FF', color: '#0042AA' }}>✉ Email</button>
               </div>
             ) : <span className="text-sm text-gray-400">—</span>}
           </div>
@@ -433,6 +437,14 @@ export default function ContactDetail() {
           user={user}
           onClose={() => setShowMeetingModal(false)}
           onSaved={load}
+        />
+      )}
+
+      {showEmailModal && contact.email && (
+        <EmailComposeModal
+          toEmail={contact.email}
+          toName={`${contact.first_name || ''} ${contact.last_name || ''}`.trim()}
+          onClose={() => setShowEmailModal(false)}
         />
       )}
     </div>
