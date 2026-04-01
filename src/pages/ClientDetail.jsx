@@ -11,13 +11,14 @@ import BillingTab from '../components/tabs/BillingTab'
 
 // ─── Assessment config ────────────────────────────────────────────────────────
 const ASSESSMENTS = [
-  { id: 'strategy',   label: 'Strategy & Planning',       icon: '🎯', color: '#0042AA', bg: '#EFF6FF' },
-  { id: 'operations', label: 'Operational Efficiency',    icon: '⚙️', color: '#6366F1', bg: '#EEF2FF' },
-  { id: 'financial',  label: 'Financial Performance',     icon: '💰', color: '#10B981', bg: '#ECFDF5' },
-  { id: 'marketing',  label: 'Marketing & Sales',         icon: '📣', color: '#F59E0B', bg: '#FFFBEB' },
-  { id: 'technology', label: 'Technology & Security',     icon: '🔐', color: '#8B5CF6', bg: '#F5F3FF' },
-  { id: 'change',     label: 'Change Management',         icon: '🔄', color: '#EC4899', bg: '#FDF2F8' },
-  { id: 'hr',         label: 'Human Resources',           icon: '👥', color: '#14B8A6', bg: '#F0FDFA' },
+  { id: 'strategy',              label: 'Strategy & Planning',       icon: '🎯', color: '#0042AA', bg: '#EFF6FF' },
+  { id: 'operations',            label: 'Operational Efficiency',    icon: '⚙️', color: '#6366F1', bg: '#EEF2FF' },
+  { id: 'financial',             label: 'Financial Performance',     icon: '💰', color: '#10B981', bg: '#ECFDF5' },
+  { id: 'marketing',             label: 'Marketing & Sales',         icon: '📣', color: '#F59E0B', bg: '#FFFBEB' },
+  { id: 'technology',            label: 'Technology & Security',     icon: '🔐', color: '#8B5CF6', bg: '#F5F3FF' },
+  { id: 'change',                label: 'Change Management',         icon: '🔄', color: '#EC4899', bg: '#FDF2F8' },
+  { id: 'hr',                    label: 'Human Resources',           icon: '👥', color: '#14B8A6', bg: '#F0FDFA' },
+  { id: 'initial_consultation',  label: 'Initial Consultation',      icon: '🤝', color: '#0042AA', bg: '#EFF6FF' },
 ]
 
 const STATUS_COLORS = {
@@ -187,12 +188,15 @@ function WorkflowChatModal({ assessmentType, client, existingAssessment, onClose
     try {
       const res = await supabase.functions.invoke('chat-assessment', {
         body: {
-          messages: [{ role: 'user', content: `Start the ${cfg.label} assessment for my client: ${client?.name || 'the client'}. Begin with your first question.` }],
-          assessment_type: assessmentType,
+          message: assessmentType === 'initial_consultation'
+            ? `Begin the initial consultation for my client: ${client?.name || 'the client'}. Start by introducing yourself and asking your first question.`
+            : `Start the ${cfg.label} assessment for my client: ${client?.name || 'the client'}. Begin with your first question.`,
+          assessmentType,
+          conversationHistory: [],
         },
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
-      const aiText = res.data?.response || 'Hello! Let\'s begin the assessment. Tell me about your client\'s current situation.'
+      const aiText = res.data?.reply || res.data?.response || 'Hello! Let\'s begin the assessment. Tell me about your client\'s current situation.'
       const initMessages = [
         { role: 'user', content: `Start the ${cfg.label} assessment for ${client?.name || 'the client'}.` },
         { role: 'assistant', content: aiText },
@@ -236,12 +240,13 @@ function WorkflowChatModal({ assessmentType, client, existingAssessment, onClose
     try {
       const res = await supabase.functions.invoke('chat-assessment', {
         body: {
-          messages: newMessages.map(m => ({ role: m.role, content: m.content })),
-          assessment_type: assessmentType,
+          message: userMsg.content,
+          assessmentType,
+          conversationHistory: newMessages.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
         },
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
-      const aiText = res.data?.response || 'Thank you for that information. Could you tell me more?'
+      const aiText = res.data?.reply || res.data?.response || 'Thank you for that information. Could you tell me more?'
       const withAI = [...newMessages, { role: 'assistant', content: aiText }]
       setMessages(withAI)
 
@@ -387,6 +392,8 @@ export default function ClientDetail() {
   const [contacts, setContacts] = useState([])
   const [tab, setTab] = useState('overview')
   const [loading, setLoading] = useState(true)
+  const [tabCounts, setTabCounts] = useState({})
+  const [showFullConsultation, setShowFullConsultation] = useState(false)
 
   const [activeChat, setActiveChat] = useState(null)
   const [notes, setNotes] = useState('')
@@ -396,6 +403,23 @@ export default function ClientDetail() {
   const [showContactForm, setShowContactForm] = useState(false)
   const [contactForm, setContactForm] = useState({ first_name: '', last_name: '', email: '', phone: '', title: '', notes: '' })
   const [savingContact, setSavingContact] = useState(false)
+
+  const loadCounts = async () => {
+    const [tasksRes, projectsRes, proposalsRes, billingRes, contactsRes] = await Promise.all([
+      supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('client_id', id).in('status', ['open', 'in_progress']),
+      supabase.from('projects').select('id', { count: 'exact', head: true }).eq('client_id', id).in('status', ['planning', 'active']),
+      supabase.from('proposals').select('id', { count: 'exact', head: true }).eq('client_id', id).in('status', ['draft', 'sent']),
+      supabase.from('time_entries').select('id', { count: 'exact', head: true }).eq('client_id', id).eq('billed', false),
+      supabase.from('company_contacts').select('id', { count: 'exact', head: true }).eq('company_id', id),
+    ])
+    setTabCounts({
+      tasks:     tasksRes.count    || 0,
+      projects:  projectsRes.count || 0,
+      proposals: proposalsRes.count|| 0,
+      billing:   billingRes.count  || 0,
+      contacts:  contactsRes.count || 0,
+    })
+  }
 
   const load = async () => {
     const [cliRes, assRes, profRes, ccRes] = await Promise.all([
@@ -410,6 +434,7 @@ export default function ClientDetail() {
     setProfile(profRes.data)
     setContacts(ccRes.data || [])
     setLoading(false)
+    loadCounts()
   }
 
   const addContact = async (e) => {
@@ -474,7 +499,17 @@ export default function ClientDetail() {
     ? (assessments.filter(a => a.score).reduce((s, a) => s + Number(a.score), 0) / assessments.filter(a => a.score).length).toFixed(1)
     : null
 
-  const TABS = ['overview', 'projects', 'contacts', 'activity', 'tasks', 'workflows', 'proposals', 'billing', 'notes']
+  const TAB_CONFIG = [
+    { id: 'overview',   label: 'Overview'   },
+    { id: 'projects',   label: 'Projects'   },
+    { id: 'contacts',   label: 'Contacts'   },
+    { id: 'activity',   label: 'Activity'   },
+    { id: 'tasks',      label: 'Tasks'      },
+    { id: 'workflows',  label: 'Workflows'  },
+    { id: 'proposals',  label: 'Proposals'  },
+    { id: 'billing',    label: 'Billing'    },
+    { id: 'notes',      label: 'Notes'      },
+  ]
 
   return (
     <div>
@@ -522,62 +557,189 @@ export default function ClientDetail() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-5 bg-white rounded-xl p-1 shadow-sm border border-gray-100 w-fit">
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className="px-5 py-2 rounded-lg text-sm font-semibold capitalize transition-all"
-            style={tab === t
-              ? { background: '#0042AA', color: 'white' }
-              : { color: '#6B7280' }}>
-            {t}
-          </button>
-        ))}
+      {/* Tabs — scrollable, compact, with count badges */}
+      <div className="mb-5 overflow-x-auto">
+        <div className="flex gap-1 bg-white rounded-xl p-1 shadow-sm border border-gray-100 w-max">
+          {TAB_CONFIG.map(t => {
+            const count = tabCounts[t.id]
+            const active = tab === t.id
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className="flex flex-col items-center px-3 py-1.5 rounded-lg transition-all min-w-0"
+                style={active ? { background: '#0042AA' } : {}}>
+                <span className="text-xs font-semibold whitespace-nowrap"
+                  style={{ color: active ? 'white' : '#6B7280' }}>
+                  {t.label}
+                </span>
+                {count > 0 ? (
+                  <span className="text-xs font-bold mt-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                    style={{ background: active ? 'rgba(255,255,255,0.25)' : '#EFF6FF', color: active ? 'white' : '#0042AA', fontSize: '9px' }}>
+                    {count > 9 ? '9+' : count}
+                  </span>
+                ) : (
+                  <span className="mt-0.5 h-4" />
+                )}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* ── Overview tab ─────────────────────────────────────────────────── */}
-      {tab === 'overview' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-            <h3 className="font-bold text-sm mb-3" style={{ color: '#0A1628' }}>Contact Details</h3>
-            <div className="space-y-2 text-sm text-gray-600">
-              {client.email && <p>✉️ <a href={`mailto:${client.email}`} className="hover:underline" style={{ color: '#0042AA' }}>{client.email}</a></p>}
-              {client.phone && <p>📞 {client.phone}</p>}
-              {client.address && <p>📍 {client.address}</p>}
-              {client.contact_name && <p>👤 {client.contact_name}</p>}
+      {tab === 'overview' && (() => {
+        const consultation = assessments.find(a => a.assessment_type === 'initial_consultation' && a.status === 'completed')
+        const consultationIP = assessments.find(a => a.assessment_type === 'initial_consultation' && a.status === 'in_progress')
+
+        // Extract top-5 bullet points from the last AI message of a completed consultation
+        const extractBullets = (msgs) => {
+          if (!msgs?.length) return []
+          const lastAI = [...msgs].reverse().find(m => m.role === 'assistant')
+          if (!lastAI) return []
+          const lines = lastAI.content.split('\n').map(l => l.trim()).filter(l => l.startsWith('- ') || l.startsWith('• '))
+          return lines.slice(0, 5)
+        }
+        const bullets = consultation ? extractBullets(consultation.messages) : []
+
+        return (
+          <div className="space-y-4">
+            {/* ── Initial Consultation card ── */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <h3 className="font-bold text-sm" style={{ color: '#0A1628' }}>Initial Consultation</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">AI-guided onboarding to capture business goals and direction</p>
+                </div>
+                {consultation && (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: '#ECFDF5', color: '#10B981' }}>Completed</span>
+                )}
+                {consultationIP && !consultation && (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: '#EFF6FF', color: '#3B82F6' }}>In Progress</span>
+                )}
+              </div>
+
+              {consultation && bullets.length > 0 ? (
+                <>
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Top 5 Recommended Focus Areas</p>
+                  <ul className="space-y-1.5 mb-3">
+                    {bullets.map((b, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                        <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5"
+                          style={{ background: '#0042AA' }}>{i + 1}</span>
+                        <span>{b.replace(/^[-•]\s*/, '')}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowFullConsultation(true)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-80"
+                      style={{ background: '#EFF6FF', color: '#0042AA' }}>
+                      View Full Consultation
+                    </button>
+                    <button
+                      onClick={() => setActiveChat({ type: 'initial_consultation', existing: consultation })}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-80"
+                      style={{ background: '#F3F4F6', color: '#6B7280' }}>
+                      Re-run Consultation
+                    </button>
+                  </div>
+                </>
+              ) : consultation ? (
+                <>
+                  <p className="text-sm text-gray-500 mb-3">Consultation completed. Click below to review the full transcript.</p>
+                  <button onClick={() => setShowFullConsultation(true)}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg hover:opacity-80"
+                    style={{ background: '#EFF6FF', color: '#0042AA' }}>
+                    View Full Consultation
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-400">No consultation on file. Start one to capture this client's goals and business context.</p>
+                  <button
+                    onClick={() => setActiveChat({ type: 'initial_consultation', existing: consultationIP || null })}
+                    className="ml-4 flex-shrink-0 px-4 py-2 rounded-xl text-white text-sm font-semibold hover:opacity-90"
+                    style={{ background: '#0042AA' }}>
+                    {consultationIP ? '▶ Resume' : '+ Start Consultation'}
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-            <h3 className="font-bold text-sm mb-3" style={{ color: '#0A1628' }}>Recent Assessments</h3>
-            {assessments.length === 0 ? (
-              <p className="text-sm text-gray-400">No assessments yet. Go to the Workflows tab to start one.</p>
-            ) : (
-              <div className="space-y-2">
-                {assessments.slice(0, 5).map(a => {
-                  const cfg = ASSESSMENTS.find(x => x.id === a.assessment_type)
-                  return (
-                    <div key={a.id} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">{cfg?.icon}</span>
-                        <span className="text-sm text-gray-700">{cfg?.label}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {a.score && <ScoreBadge score={a.score} />}
-                        <span className="text-xs px-2 py-0.5 rounded-full"
-                          style={a.status === 'completed'
-                            ? { background: '#ECFDF5', color: '#10B981' }
-                            : { background: '#EFF6FF', color: '#3B82F6' }}>
-                          {a.status}
-                        </span>
-                      </div>
+
+            {/* ── Full consultation modal ── */}
+            {showFullConsultation && consultation && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col" style={{ maxHeight: '85vh' }}>
+                  <div className="flex items-center justify-between p-5 border-b border-gray-100 flex-shrink-0">
+                    <div>
+                      <h2 className="font-bold text-base" style={{ color: '#0A1628' }}>Initial Consultation — {client.name}</h2>
+                      <p className="text-xs text-gray-400 mt-0.5">{new Date(consultation.updated_at).toLocaleDateString()}</p>
                     </div>
-                  )
-                })}
+                    <button onClick={() => setShowFullConsultation(false)}
+                      className="text-gray-400 hover:text-gray-600 text-xl w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100">×</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-5 space-y-3" style={{ background: '#F8FAFC' }}>
+                    {(consultation.messages || []).filter(m => m.role === 'assistant').map((msg, i) => (
+                      <div key={i} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                        <p className="text-xs font-bold mb-2" style={{ color: '#0042AA' }}>AI Consultant</p>
+                        <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                          {msg.content.split('\n').map((line, j) => (
+                            <p key={j} className={line.startsWith('**') ? 'font-bold mt-2' : line.startsWith('-') ? 'ml-3' : ''}>
+                              {line.replace(/\*\*/g, '')}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
+
+            {/* ── Contact details + recent assessments ── */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                <h3 className="font-bold text-sm mb-3" style={{ color: '#0A1628' }}>Contact Details</h3>
+                <div className="space-y-2 text-sm text-gray-600">
+                  {client.email && <p>✉️ <a href={`mailto:${client.email}`} className="hover:underline" style={{ color: '#0042AA' }}>{client.email}</a></p>}
+                  {client.phone && <p>📞 {client.phone}</p>}
+                  {client.address && <p>📍 {client.address}</p>}
+                  {client.contact_name && <p>👤 {client.contact_name}</p>}
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                <h3 className="font-bold text-sm mb-3" style={{ color: '#0A1628' }}>Recent Assessments</h3>
+                {assessments.filter(a => a.assessment_type !== 'initial_consultation').length === 0 ? (
+                  <p className="text-sm text-gray-400">No assessments yet. Go to the Workflows tab to start one.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {assessments.filter(a => a.assessment_type !== 'initial_consultation').slice(0, 5).map(a => {
+                      const cfg = ASSESSMENTS.find(x => x.id === a.assessment_type)
+                      return (
+                        <div key={a.id} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{cfg?.icon}</span>
+                            <span className="text-sm text-gray-700">{cfg?.label}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {a.score && <ScoreBadge score={a.score} />}
+                            <span className="text-xs px-2 py-0.5 rounded-full"
+                              style={a.status === 'completed'
+                                ? { background: '#ECFDF5', color: '#10B981' }
+                                : { background: '#EFF6FF', color: '#3B82F6' }}>
+                              {a.status}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* ── Contacts tab ──────────────────────────────────────────────────── */}
       {tab === 'contacts' && (
