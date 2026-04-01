@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { jsPDF } from 'jspdf'
 import ActivityFeed from '../components/ActivityFeed'
 import TaskPanel from '../components/TaskPanel'
+import EmailComposeModal from '../components/EmailComposeModal'
 import ProjectsTab from '../components/tabs/ProjectsTab'
 import ProposalsTab from '../components/tabs/ProposalsTab'
 import BillingTab from '../components/tabs/BillingTab'
@@ -399,6 +400,8 @@ export default function ClientDetail() {
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
 
+  const [emailTarget, setEmailTarget] = useState(null) // { email, name }
+
   // Contact form state
   const [showContactForm, setShowContactForm] = useState(false)
   const [contactForm, setContactForm] = useState({ first_name: '', last_name: '', email: '', phone: '', title: '', notes: '' })
@@ -701,7 +704,14 @@ export default function ClientDetail() {
               <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
                 <h3 className="font-bold text-sm mb-3" style={{ color: '#0A1628' }}>Contact Details</h3>
                 <div className="space-y-2 text-sm text-gray-600">
-                  {client.email && <p>✉️ <a href={`mailto:${client.email}`} className="hover:underline" style={{ color: '#0042AA' }}>{client.email}</a></p>}
+                  {client.email && (
+                    <p>✉️ <button
+                      onClick={() => setEmailTarget({ email: client.email, name: client.contact_name || client.name })}
+                      className="hover:underline text-left"
+                      style={{ color: '#0042AA' }}>
+                      {client.email}
+                    </button></p>
+                  )}
                   {client.phone && <p>📞 {client.phone}</p>}
                   {client.address && <p>📍 {client.address}</p>}
                   {client.contact_name && <p>👤 {client.contact_name}</p>}
@@ -825,9 +835,12 @@ export default function ClientDetail() {
                     <div className="space-y-1 text-sm">
                       {c.email && (
                         <p className="text-gray-500">
-                          <a href={`mailto:${c.email}`} className="hover:underline" style={{ color: '#0042AA' }}>
+                          <button
+                            onClick={() => setEmailTarget({ email: c.email, name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.email })}
+                            className="hover:underline text-left"
+                            style={{ color: '#0042AA' }}>
                             ✉ {c.email}
-                          </a>
+                          </button>
                         </p>
                       )}
                       {c.phone && (
@@ -999,6 +1012,14 @@ export default function ClientDetail() {
           profile={profile}
           onClose={() => setActiveChat(null)}
           onSave={() => { load(); setActiveChat(null) }}
+        />
+      )}
+
+      {emailTarget && (
+        <EmailComposeModal
+          toEmail={emailTarget.email}
+          toName={emailTarget.name}
+          onClose={() => setEmailTarget(null)}
         />
       )}
     </div>
