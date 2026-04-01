@@ -5,6 +5,9 @@ import { useAuth } from '../context/AuthContext'
 import { jsPDF } from 'jspdf'
 import ActivityFeed from '../components/ActivityFeed'
 import TaskPanel from '../components/TaskPanel'
+import ProjectsTab from '../components/tabs/ProjectsTab'
+import ProposalsTab from '../components/tabs/ProposalsTab'
+import BillingTab from '../components/tabs/BillingTab'
 
 // ─── Assessment config ────────────────────────────────────────────────────────
 const ASSESSMENTS = [
@@ -471,7 +474,7 @@ export default function ClientDetail() {
     ? (assessments.filter(a => a.score).reduce((s, a) => s + Number(a.score), 0) / assessments.filter(a => a.score).length).toFixed(1)
     : null
 
-  const TABS = ['overview', 'contacts', 'activity', 'tasks', 'workflows', 'notes']
+  const TABS = ['overview', 'projects', 'contacts', 'activity', 'tasks', 'workflows', 'proposals', 'billing', 'notes']
 
   return (
     <div>
@@ -787,6 +790,21 @@ export default function ClientDetail() {
             </div>
           )}
         </div>
+      )}
+
+      {/* ── Projects tab ──────────────────────────────────────────────────── */}
+      {tab === 'projects' && (
+        <ProjectsTab clientId={id} />
+      )}
+
+      {/* ── Proposals tab ─────────────────────────────────────────────────── */}
+      {tab === 'proposals' && (
+        <ProposalsTab clientId={id} client={client} />
+      )}
+
+      {/* ── Billing tab ───────────────────────────────────────────────────── */}
+      {tab === 'billing' && (
+        <BillingTab clientId={id} client={client} />
       )}
 
       {/* ── Notes tab ─────────────────────────────────────────────────────── */}
